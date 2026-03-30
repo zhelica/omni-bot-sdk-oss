@@ -181,7 +181,7 @@ class OpenAIBotPlugin(Plugin):
         return self.name
 
     def get_plugin_description(self) -> str:
-        return "OpenAI 聊天机器人插件"
+        return "保单投保插件"
 
     @classmethod
     def get_plugin_config_schema(cls):

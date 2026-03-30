@@ -1,88 +1,99 @@
-# omni-bot-sdk
+# Omni-Bot-SDK：基于视觉识别的微信RPA框架
 
-> ⚠️ **使用风险警告**
->
-> 使用本项目存在微信账号被封禁、功能受限等风险，**项目及作者概不承担任何责任**。
->
-> **🫸强烈建议不要使用任何在线 LLM API（如 OpenAI、百度、讯飞等）以免造成个人信息泄漏。**
->
-> 在使用过程中，请务必遵守微信的各项行为准则，避免违规操作，降低封号概率。
->
-> ---
->
-> **🙅‍♂️禁止使用范围：**
->
-> 本项目**严禁用于营销、发广告等任何企业或商业行为**，仅推荐用于个人学习和技术交流用途。
->
-> **☂️隐私与安全声明：**
->
-> 本项目**不联网，不收集任何用户数据**，所有运行数据均保留在用户电脑本地。
->
-> 本项目**不会对微信数据库进行任何写操作**，不影响微信的正常运行。
+> ⚠️ **免责声明**
+> 
+> 本项目仅用于个人学习和技术交流。**严禁**用于营销、发广告等商业行为。使用本项目存在微信被封号的风险，**作者不承担任何法律责任**。请务必遵守微信软件许可协议。
 
 <p align="center">
-  <a href="https://github.com/weixin-omni/omni-bot-sdk-oss">
-    <img src="https://img.shields.io/pypi/v/omni-bot-sdk.svg" alt="PyPI version">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/pypi/l/omni-bot-sdk.svg?x=1" alt="License">
-  </a>
-  <a href="https://pypi.org/project/omni-bot-sdk">
-    <img src="https://img.shields.io/pypi/pyversions/omni-bot-sdk.svg" alt="Python Version">
-  </a>
+  <img src="https://img.shields.io/pypi/v/omni-bot-sdk.svg" alt="版本">
+  <img src="https://img.shields.io/pypi/pyversions/omni-bot-sdk.svg" alt="Python版本">
+  <img src="https://img.shields.io/badge/license-GPL--3.0-orange.svg" alt="许可证">
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/支持微信版本-4.0.6.33-green" alt="支持微信版本: 4.0.6.33">
-</p>
+🤖 **项目简介**
 
-> 🤖👁️🖥️ 一个基于视觉识别，运行时零侵入的微信4.0 RPA 框架，构建个微聊天机器人，快速接入LLM,Dify
+Omni-Bot-SDK 是一个**运行时零侵入**的微信自动化框架。它不依赖复杂的逆向工程或Hook技术，而是通过**“视觉感知+数据驱动”**的方式，模拟人类操作习惯，安全、稳定地构建你的专属微信机器人。
 
-<p align="center">
-  <kbd><img src="https://github.com/user-attachments/assets/e94e0a88-ce16-4f3b-bc48-e6ae08e37eef" alt="项目演示" width="600"/></kbd>
-</p>
+---
 
-## ✨ 特性
+## 🌟 核心原理：像人一样“看”和“做”
 
-* **接收消息零延迟**：基于数据库的监听策略，几乎零延迟接收消息
-* **运行时零侵入**：采用特殊训练的YOLO模型 + OCR识别定位策略，对微信程序零HOOK，降低被检测概率
-* **MCP Tool**: 支持mcp调用rpa，和微信进行交互，发送消息，群管理操作等
-* **RPA可扩展**：可轻松自定义RPA扩展，支持更多的动作，包括 发送朋友圈，发送小程序等
-* **插件化架构**：通过插件系统轻松扩展你的机器人功能，保持主逻辑清晰。
-* **理论支持最新版本微信**：基于视觉识别的RPA，几乎不受微信版本更新影响
-* **快速启动**：几行代码，即可启动一个RPA机器人
-* **异常自恢复**: 微信异常的情况下尝试自动回复RPA，失败自动推送钉钉登录二维码
+本项目的核心逻辑完全基于**视觉识别（OCR）**与**本地数据交互**，确保在不干扰微信正常运行的前提下实现自动化：
+
+1.  **消息获取（数据源驱动）**：
+    框架通过轮询读取微信本地数据库（只读模式），实时捕获最新消息，确保消息接收几乎零延迟。
+2.  **决策处理（逻辑大脑）**：
+    收到消息后，根据预设规则或LLM（大语言模型）生成回复内容。
+3.  **自动化执行（视觉RPA）**：
+    *   **定位**：利用OCR技术识别微信客户端界面，根据联系人名称在左上角搜索框进行查找。
+    *   **交互**：识别到目标联系人后，模拟鼠标点击进入对话框。
+    *   **发送**：将生成的内容复制粘贴至输入框，识别“发送”按钮并点击，完成全流程闭环。
+
+---
 
 ## 🚀 快速开始
 
-注意，基于RPA方案，在运行时，请勿操作鼠标键盘，以免影响RPA运行
+### 1. 环境准备
+*   **Python版本**：必须使用 **Python 3.12** (项目依赖要求)
+*   **微信版本**：支持 Windows 微信 4.1.8.29 及以上版本
 
+### 2. 安装依赖 (三种方式)
 
-### 1. 安装
+本项目支持多种安装方式，建议开发者根据需求选择。
 
-**务必使用Python3.12**
-
-通过 pip 从 PyPI 安装：
-
+#### 方式 A：使用项目自带的开发安装脚本（推荐）
+这是最便捷的方式，适合希望直接修改源码的开发者。
 ```bash
-pip install omni-bot-sdk
+# 1. 进入项目根目录
+cd D:\project\rpa\omni-bot-sdk-oss-master
+
+# 2. 运行安装脚本 (内部执行 pip install -e .)
+python install_dev.py
 ```
 
-### 2. 获取数据库密钥
+#### 方式 B：直接使用 pip 安装 (标准模式)
+```bash
+# 1. 进入项目根目录
+cd D:\project\rpa\omni-bot-sdk-oss-master
 
-**本项目不提供此工具，可自行通过github获取 DbkeyHookCMD.exe或者DbkeyHookUI.exe进行获取
-获取数据库密钥后，填入配置文件中的 dbkey，请查阅鸣谢章节获取**
+# 2. 执行可编辑安装
+pip install -e .
+```
 
-### 3. 启动MQTT服务
+#### 方式 C：使用虚拟环境 + 路径设置 (最佳实践)
+为了隔离依赖，推荐使用虚拟环境来运行示例代码。
+```bash
+# 1. 克隆仓库
+git clone https://github.com/zhelica/omni-bot-sdk-oss
+cd omni-bot-sdk-oss
 
-mqtt服务用于MCP消息转发，以及后续更新任务执行结果回调，windows可以使用nanomq直接启动本地服务
+# 2. 创建并激活虚拟环境 (推荐)
+python -m venv venv
+source venv/bin/activate # on Windows: venv\Scripts\activate
+#退出虚拟环境
+deactivate
+# 3. 安装开发依赖
+pip install -e .
+```
 
-### 4. "Hello, World"
+### 3. 启动 MQTT 服务
+MQTT 服务用于 **MCP 消息转发** 以及 **后续更新任务执行结果回调**。
 
-**🔎🔑注意：重新启动一次微信，并登录，然后立即启动RPA，否则可能无法获取图片解密密钥，微信会在启动后一段时间污染密钥，RPA启动后会自动给文件传输助手发送一张图片，然后执行获取密钥**
+**Windows 用户推荐使用 NanoMQ：**
+1.  **下载安装**：前往 [NanoMQ GitHub 仓库](https://github.com/nanomq/nanomq) 获取 Windows 版本。
+2.  **启动服务**：下载后直接在命令行或终端中启动 NanoMQ 服务，它将作为本地的消息队列中间件运行。
+    ```bash
+    # 示例启动命令 (具体取决于下载版本)
+    nanomq start
+    ```
 
-参考 config.example，生成 config.yaml ，然后几行代码即可启动RPA
+### 4. 获取数据库密钥 (关键步骤)
+本项目**不提供**破解数据库秘钥的工具。
 
+请参考开源项目 [wx_key仓库](https://github.com/ycccccccy/wx_key#) 获取工具，提取微信数据库密钥（DbKey）。获取后，请将密钥填入项目的 `config.yaml` 配置文件中。
+
+### 5. 启动机器人
+配置好密钥及MQTT服务后，运行以下代码即可启动：
 ```python
 from omni_bot_sdk.bot import Bot
 
@@ -94,155 +105,121 @@ if __name__ == "__main__":
     main()
 ```
 
-现在，去和你的机器人聊天吧！
+---
 
-## 🖥️ 桌面版 GUI 客户端
+## 🏗️ 系统整体架构
 
-如果您喜欢直接使用桌面版应用程序，我们为您准备了一个可视化管理客户端，无需编写代码即可轻松上手。
-
-👉 [前往 omni-bot-gui 仓库](https://github.com/weixin-omni/omni-bot-gui)
-
-## 项目架构
+本系统采用分层设计，从底层驱动到上层业务逻辑解耦清晰。
 
 ```mermaid
-graph LR
-    subgraph "消息源 (Source)"
-        direction LR
-        DB[(数据库)]
+flowchart TB
+    subgraph "微信客户端"
+        WeChat["微信窗口(WeChat.exe)"]
+        DB["微信数据库(message_0.db)"]
     end
 
-    subgraph "核心处理框架 (Core Framework)"
-        direction TB
-        Poller{轮询器} -->|发现新消息| MsgQueue([消息队列])
-        MsgQueue --> Consumer[消息消费者/解析器]
-        Consumer --> PluginManager[/插件管理器/]
-        
-        subgraph "插件链 (Plugin Chain)"
-            PluginManager -->|输入消息| Plugin1
-            Plugin1 --> Plugin2
-            Plugin2 --> ...
+    subgraph "Omni-Bot 核心框架"
+        subgraph "消息接收层"
+            DBService["DatabaseService数据库服务"]
+            Poller["轮询器定时扫描数据库"]
+            MsgService["MessageService消息服务"]
         end
-        
-        ... -->|输出Action| PluginManager
-        PluginManager --> |汇总动作清单| RPAQueue([RPA动作队列])
+
+        subgraph "消息处理层"
+            MsgFactory["MessageFactory消息工厂"]
+            PluginMgr["PluginManager插件管理器"]
+            Plugins["插件链ChatContext → SelfMsg → OpenAI..."]
+        end
+
+        subgraph "RPA 执行层"
+            RPAController["RPAControllerRPA控制器"]
+            ActionHandlers["Action Handlers发送/切换/下载..."]
+        end
     end
 
-    subgraph "RPA执行端 (Executor)"
-        direction TB
-        RPA_Consumer[RPA消费者] --> RPA_Handler(Action Handler)
-        RPA_Handler --> WeChat((微信交互))
+    subgraph "MCP 服务层"
+        MCPServer["FastMCP Server端口 8000"]
+        MQTT["MQTT Client消息转发"]
     end
 
-    DB -- 定时读取 --> Poller
-    RPAQueue --> RPA_Consumer
+    subgraph "外部服务"
+        LLM["LLM APIOpenAI/DeepSeek"]
+        DingTalk["钉钉推送异常通知"]
+    end
+
+    DB -->|只读访问| DBService
+    DBService --> Poller
+    Poller -->|发现新消息| MsgService
+    MsgService --> MsgFactory
+    MsgFactory --> PluginMgr
+    PluginMgr --> Plugins
+    Plugins -->|RPA Actions| RPAController
+    RPAController -->|YOLO+OCR| WeChat
+    RPAController --> ActionHandlers
+    MCPServer -->|MQTT| RPAController
+    Plugins -->|调用| LLM
+    RPAController -->|异常推送| DingTalk
 ```
 
-## 📚 插件文档
+---
 
-想要了解更多高级用法和完整的 API 参考吗？
+## 🔄 核心流程详解
 
-👉 **请查阅我们的 [插件仓库](https://github.com/weixin-omni/omni-bot-plugins-oss)** 👈
+### 消息处理时序
+从数据库读取到AI回复的完整链路：
 
-内置了两个插件
+```mermaid
+sequenceDiagram
+    participant DB as 数据库
+    participant Poller as 轮询器
+    participant MsgSvc as 消息服务
+    participant Factory as 消息工厂
+    participant PluginMgr as 插件管理器
+    participant Plugin as AI插件
+    participant RPA as RPA控制器
+    participant WeChat as 微信
 
-* 自己发送的消息阻断，不再触发后续的插件处理
-* 没有群名称的消息阻断，目前无法处理这类消息
+    DB->>Poller: 定时查询最新消息
+    Poller->>MsgSvc: 发现新消息
+    MsgSvc->>MsgSvc: 加入延迟队列
+    MsgSvc->>Factory: 解析消息类型
 
-## 🧩 示例
+    Factory->>PluginMgr: 分发消息
 
-我们提供了一个包含丰富示例的目录，帮助你快速实现各种功能。
+    PluginMgr->>Plugin: 依次执行插件
+    Note over Plugin: 1. ChatContextPlugin2. SelfMsgPlugin3. OpenAIBotPlugin
 
-你可以在本仓库的 `examples/` 目录下找到所有示例代码。
+    Plugin->>Plugin: 判断是否处理群聊: @我 或 引用我私聊: 全部处理
 
-## 🤝 贡献
+    Plugin->>LLM: 调用 LLM API
+    LLM-->>Plugin: 返回响应
 
-我们热烈欢迎任何形式的贡献！无论是提交 Issue、修复 Bug 还是添加新功能。
+    Plugin->>PluginMgr: 返回 RPA Action
 
-在开始之前，请先阅读我们的 **[贡献指南 (CONTRIBUTING.md)](CONTRIBUTING.md)**。
+    PluginMgr->>RPA: 提交动作队列
+    RPA->>WeChat: RPA 执行YOLO定位 + OCR识别
 
-开发环境设置：
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/weixin-omni/omni-bot-sdk-oss
-cd omni-bot-sdk-oss
-
-# 2. 创建并激活虚拟环境 (推荐)
-python -m venv venv
-source venv/bin/activate # on Windows: venv\Scripts\activate
-#退出虚拟环境
-deactivate
-# 3. 安装开发依赖
-pip install -e .
-
+    RPA-->>MsgSvc: 执行完成
 ```
 
-## 💀 项目局限性
+---
 
-* RPA操作基于文字识别和YOLO识别，无法保证100%准确以及操作的100%成功，鲁棒性不如接口逆向或Hook的框架
-* 消息发送需要指定联系人，采用和人类操作完全相同的策略，当出现同名的联系人或者群聊时，无法准确找到目标对话，导致操作失败或错误
-* RPA操作不能打断，由于RPA操作必须是线性的，因此RPA框架运行时，会和用户抢夺鼠标键盘的操控权，最佳情况是在单独的机器上进行部署
-* 窗口不能准确获取，虽然已经采取了一部分措施来防止获取到错误的窗口，但是目前不能保证100%，如果有同名的窗口标题，可能导致错误的窗口焦点
-* 初始化流程长，由于RPA初始化需要对不同的控件进行定位，因此需要花费一点时间，这是正常的。完全采用视觉定位，无法避免。
-* 数据获取方案可被检测，目前采用数据库轮询的方案获取最新消息，使用只读模式打开微信的db文件，会出现文件句柄，具体表现和杀毒软件扫描文件应该是类似的。后续会优化，在不读取的时候释放掉句柄。
+## 📊 项目发展历史
 
-## ❓FAQ
+本项目自开源以来，持续迭代，致力于提供更稳定的RPA体验。
 
-可以加Omni-bot的开发者交流群，请注明omni-bot，机器人会自动通过，每天自动通过人数有限，请耐心等待
-
-<p align="center">
-    <img src="https://omni-rpa.bmwidget.com/omni-rpa.jpg" alt="交流群" width="300">
-    <img src="https://github.com/user-attachments/assets/16db82a1-6032-4c4b-8287-8dfbb3be70ce" alt="群主bot"width="300">
-</p>
-
-（如果项目对你有用，也可以请我喝杯咖啡 ☕️ ~）
-
-<p align="center">
-  <kbd><img src="https://github.com/user-attachments/assets/195ab37d-bc51-44a2-9330-e4df9dbf67dc" alt="赞赏码" width="200"/></kbd>
-</p>
-
-## 🗺️ 路线图 (Roadmap)
-
-我们对项目的未来有一些规划，欢迎你加入讨论或贡献代码！
-
-* [ ] 更换图片解析的方式，支持WXGF解析 [图片解析项目](https://github.com/recarto404/WxDatDecrypt)
-* [ ] 优化消息获取机制，增强反屏蔽能力
-* [ ] 增强鲁棒性，对于视觉识别异常调用VL模型进一步处理
-* [ ] 增加更多免费插件
-* [ ] 一个更加完善的GUI客户端（目前有一个简化版）
-* [ ] 编写测试用例（嘿嘿嘿嘿嘿，这一条就先看看）
-
-## 📄 许可证
-
-本项目基于 [GPL-V3](LICENSE) 许可证开源。
-
-## ❤️ 致谢与引用
-
-本项目在开发过程中参考和使用了以下开源项目的代码和技术，在此向这些项目的作者和贡献者表示衷心的感谢：
-
-### 微信数据库解析相关
-
-- **[DbkeyHook](https://github.com/gzygood/DbkeyHook)** - 微信数据库密钥获取工具，是本项目运行的前提条件
-* **[wechat-dump-rs](https://github.com/0xlane/wechat-dump-rs)** - 基于Rust的微信数据库解析工具，为本项目提供了数据库读取的技术参考
-* **[WeChatMsg](https://github.com/LC044/WeChatMsg)** - 微信聊天记录导出工具，提供了微信消息格式解析的重要参考
-* **[wechat-dump](https://github.com/ppwwyyxx/wechat-dump)** - 微信数据库导出工具，WXGF格式的解析参考
-
-### 微信文件解析相关
-
-- **[WxDatDecrypt](https://github.com/recarto404/WxDatDecrypt)** - 微信文件解密工具，为图片和媒体文件的解析提供了技术支持
-
-这些优秀的开源项目为omni-bot-sdk的开发奠定了重要的技术基础。我们感谢这些项目的开源精神，并承诺在遵循各自许可证的前提下使用这些技术。
-
-## ⚠️ 免责声明
-
-本项目仅供学习和技术交流使用，严禁用于任何商业用途或违反相关法律法规的行为。因使用本项目产生的任何后果，均由用户自行承担，项目作者不承担任何法律责任。
-
-## 🌟 Star History
-
-<a href="https://www.star-history.com/#weixin-omni/omni-bot-sdk-oss&Date">
+<a href="https://www.star-history.com/?repos=zhelica%2Fomni-bot-sdk-oss&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=weixin-omni/omni-bot-sdk-oss&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=weixin-omni/omni-bot-sdk-oss&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=weixin-omni/omni-bot-sdk-oss&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zhelica/omni-bot-sdk-oss&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zhelica/omni-bot-sdk-oss&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zhelica/omni-bot-sdk-oss&type=date&legend=top-left" />
  </picture>
 </a>
+
+---
+
+## 🛑 局限性说明
+
+*   **依赖视觉环境**：由于基于OCR识别，如果微信界面分辨率变化过大或主题颜色改变，可能影响识别准确率。
+*   **操作互斥**：RPA运行时需要控制鼠标键盘，建议在独立的物理机或虚拟机中运行，避免人为操作干扰。
+*   **同名处理**：当存在多个同名联系人时，程序可能无法精准定位到目标，需配合微信号或其他唯一标识进行过滤。
