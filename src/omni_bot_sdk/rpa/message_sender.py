@@ -16,7 +16,6 @@ from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
 from omni_bot_sdk.rpa.window_manager import WindowManager
 from omni_bot_sdk.utils.helpers import (
     copy_file_to_clipboard,
-    get_center_point,
     read_temp_image,
     save_clipboard_image_to_temp,
     set_clipboard_text,
@@ -42,37 +41,56 @@ class MessageSender:
         self.temp_image_path = None
         self.window_manager = window_manager
 
-    def send_message(self, message: str, clear_input_box: bool = True) -> bool:
+    def send_message(self, message: str, clear_input_box: bool = True, max_retries: int = 2) -> bool:
         """
         发送文本消息。
         Args:
             message (str): 消息内容。
             clear_input_box (bool): 是否先清空输入框。
+            max_retries (int): 最大重试次数。
         Returns:
             bool: 是否发送成功。
         """
-        try:
-            if not self.window_manager.activate_input_box():
-                return False
-            if clear_input_box:
-                pyautogui.hotkey("ctrl", "a")
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    self.logger.info(f"发送消息重试 (第 {attempt + 1} 次)...")
+                    time.sleep(0.5)
+
+                if not self.window_manager.activate_input_box():
+                    self.logger.warning("激活输入框失败")
+                    continue
+                # 等待输入框获得焦点（刚从搜索切换时尤其容易抢不到焦点）
+                time.sleep(0.25)
+                if clear_input_box:
+                    pyautogui.hotkey("ctrl", "a")
+                    time.sleep(0.3)
+                    pyautogui.press("delete")
+                    time.sleep(0.3)
+                if not set_clipboard_text(message):
+                    self.logger.error("设置剪贴板文本失败")
+                    continue
+                self.logger.info(f"剪贴板已设置: {message[:50]}...")
+                pyautogui.hotkey("ctrl", "v")
                 time.sleep(0.3)
-                pyautogui.press("delete")
-                time.sleep(0.3)
-            if not set_clipboard_text(message):
-                return False
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.3)
-            send_button = self.window_manager.get_icon_position("send_button")
-            if send_button:
-                center = get_center_point(send_button)
+                self.logger.info("已执行 Ctrl+V 粘贴")
+                # 点击发送按钮
+                center = self.window_manager.get_send_button_center_exact()
+                self.logger.info(f"点击发送按钮: {center}")
                 pyautogui.click(center[0], center[1])
+                time.sleep(0.2)
+                # 回车兜底，双重保险
+                self.logger.info("回车兜底发送")
+                pyautogui.press("enter")
                 time.sleep(0.3)
+                self.logger.info("消息发送完成")
                 return True
-            return False
-        except Exception as e:
-            self.logger.error(f"发送消息时出错: {str(e)}")
-            return False
+            except Exception as e:
+                self.logger.error(f"发送消息时出错 (尝试 {attempt + 1}/{max_retries + 1}): {str(e)}")
+                continue
+
+        self.logger.error(f"发送消息失败，已重试 {max_retries} 次")
+        return False
 
     def _calc_similarity(
         self, search_text: str, formatted_results: List[Dict], score_cutoff: float = 0.6

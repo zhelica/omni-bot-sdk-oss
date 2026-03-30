@@ -23,11 +23,11 @@ class MessageFactoryService:
         table_name, msg_with_db = message
         type_ = msg_with_db[2]
         self.logger.info(f"消息类型: {MessageType.name(type_)}")
-        
+
         # 特别关注系统消息，可能是撤回消息
         if type_ == MessageType.System:
             self.logger.info(f"检测到系统消息，内容: {msg_with_db[12] if len(msg_with_db) > 12 else 'N/A'}")
-        
+
         room = self.db.get_room_by_md5(table_name.replace("Msg_", ""))
         if type_ not in FACTORY_REGISTRY:
             type_ = -1
@@ -44,9 +44,9 @@ class MessageFactoryService:
         msg.room = room
         if contact:
             msg.contact = contact
-        
+
         # 检查是否为撤回消息
         if hasattr(msg, 'is_recall_message') and msg.is_recall_message():
             self.logger.info(f"检测到撤回消息: {msg.parsed_content}")
-        
+
         return msg

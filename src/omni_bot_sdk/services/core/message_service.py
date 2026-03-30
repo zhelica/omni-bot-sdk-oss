@@ -33,7 +33,7 @@ class MessageService:
     # 延迟队列最大容量
     MAX_DELAY_QUEUE_SIZE = 1000
     # 延迟时间（秒）
-    DELAY_SECONDS = 60
+    DELAY_SECONDS = 1
 
     def __init__(self, message_queue: Queue, db: DatabaseService):
         self.logger = logging.getLogger(__name__)
@@ -96,6 +96,48 @@ class MessageService:
             return
         self.is_paused = False
         self.logger.info("消息监听器已恢复。")
+
+    def _is_recall_message(self, message: Tuple[str, tuple]) -> bool:
+        """
+        检查消息是否为撤回消息。
+
+        Args:
+            message: 消息元组 (table_name, msg_data)
+
+        Returns:
+            bool: 如果是撤回消息返回True，否则返回False
+        """
+        try:
+            table_name, msg_data = message
+            if len(msg_data) < 6:
+                return False
+
+            # 消息类型字段在 msg_data[2]
+            msg_type = msg_data[2] if len(msg_data) > 2 else None
+
+            # 撤回消息的特征：
+            # 1. 消息类型为文本(1)或系统消息(10000)，但内容为特定撤回关键词
+            # 2. 消息内容包含撤回相关文字
+            content = msg_data[5] if len(msg_data) > 5 else ""  # 消息内容字段
+            if content:
+                # 检查撤回关键词
+                recall_keywords = ["撤回了一条消息", "recalled a message", "撤回了消息"]
+                content_str = str(content)
+                for keyword in recall_keywords:
+                    if keyword in content_str:
+                        return True
+
+            # 也可能是特定消息类型
+            # 微信撤回消息的类型通常是文本或系统消息
+            if msg_type in (1, 10000) and content:
+                content_str = str(content).lower()
+                if "撤回" in content_str or "recall" in content_str:
+                    return True
+
+            return False
+        except Exception as e:
+            self.logger.error(f"检查撤回消息时出错: {e}")
+            return False
 
     def _contains_at_target(self, content: str) -> bool:
         """
@@ -163,42 +205,7 @@ class MessageService:
                 msg = delayed_msg.message
                 table_name, msg_data = msg
                 msg_type = msg_data[2] if len(msg_data) > 2 else "unknown"
-
                 # 延迟到期后，重新查询消息当前状态
-                self.logger.info(
-                    f"开始处理延迟消息: server_id={delayed_msg.server_id}, "
-                    f"message_db_path={delayed_msg.message_db_path}, username={delayed_msg.username}"
-                )
-                if delayed_msg.server_id and delayed_msg.message_db_path and delayed_msg.username:
-                    try:
-                        # 确保数据库路径存在
-                        if not delayed_msg.message_db_path.exists():
-                            self.logger.warning(
-                                f"数据库文件不存在: {delayed_msg.message_db_path}, 跳过重新查询"
-                            )
-                        else:
-                            fresh_msg = self.db.get_message_by_server_id(
-                                delayed_msg.server_id,
-                                delayed_msg.message_db_path,
-                                delayed_msg.username
-                            )
-                            self.logger.info(
-                                f"重新查询消息结果: server_id={delayed_msg.server_id}, "
-                                f"fresh_msg={fresh_msg}"
-                            )
-                            if fresh_msg is None:
-                                # 消息在数据库中不存在，说明被撤回或删除了
-                                self.logger.info(
-                                    f"延迟后重新查询消息不存在（可能被撤回）: server_id={delayed_msg.server_id}, "
-                                    f"跳过处理"
-                                )
-                                continue
-                            # 更新消息内容为最新查询结果
-                            msg = (table_name, fresh_msg)
-                            msg_data = fresh_msg
-                    except Exception as e:
-                        self.logger.warning(f"重新查询消息失败: {e}, 继续使用原始消息")
-
                 self.logger.info(
                     f"延迟消息处理，来自于{Path(msg_data[-1]).name} : {table_name}, 消息类型: {msg_type}"
                 )
@@ -232,22 +239,12 @@ class MessageService:
                             if msg_type not in self.seen_message_types:
                                 self.seen_message_types.add(msg_type)
                                 self.logger.info(f"发现新消息类型: {msg_type}")
+
                             print(f"msg_data: {msg_data}")
-                            # 修改为索引 12，并增加长度检查以防越界
-                            content = msg_data[15] if len(msg_data) > 15 else ""
-
-                            # 确保 content 是字符串（虽然索引 12 看起来已经是字符串了，但做个保护更好）
-                            if isinstance(content, bytes):
-                                content = content.decode('utf-8', errors='ignore')
-                            elif not isinstance(content, str):
-                                content = str(content)
-
-                            # 后续逻辑
-                            if content and self._contains_at_target(content):
-                                self.logger.info(
-                                    f"消息包含@目标，跳过加入延迟队列: {table_name}, 内容: {content[:50]}..."
-                                )
-                                continue
+                            # 检查消息内容是否包含 @chat/@let/@chatroom，这些需要加入队列
+                            # content = msg_data[12] if len(msg_data) > 12 else ""
+                            # if content and self._contains_at_target(str(content)):
+                            #     continue
 
                             # 只处理 msg_type = 1 的消息，其他类型不加入延迟队列
                             if msg_type != 1:

@@ -170,7 +170,8 @@ cd omni-bot-sdk-oss
 # 2. 创建并激活虚拟环境 (推荐)
 python -m venv venv
 source venv/bin/activate # on Windows: venv\Scripts\activate
-
+#退出虚拟环境
+deactivate
 # 3. 安装开发依赖
 pip install -e .
 

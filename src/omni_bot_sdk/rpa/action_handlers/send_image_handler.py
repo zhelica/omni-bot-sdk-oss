@@ -43,16 +43,33 @@ class SendImageHandler(BaseActionHandler):
         Returns:
             bool: 操作是否成功。
         """
+        import logging
+        logger = logging.getLogger(__name__)
         try:
             if not self.window_manager.switch_session(action.target):
                 return False
             if not copy_file_to_clipboard(action.image_path):
                 return False
+            logger.info(f"图片已复制到剪贴板: {action.image_path}")
             time.sleep(self.controller.window_manager.action_delay)
-            self.window_manager.activate_input_box()
+
+            # 先激活输入框获取焦点
+            if not self.window_manager.activate_input_box():
+                logger.error("激活输入框失败")
+                return False
             time.sleep(self.controller.window_manager.action_delay)
+
+            # 粘贴图片
+            logger.info("执行 Ctrl+V 粘贴图片")
             pyautogui.hotkey("ctrl", "v")
             time.sleep(1)
-            return self.ui_helper.click_send_button()
+
+            # 点击发送按钮
+            logger.info("点击发送按钮")
+            if self.ui_helper.click_send_button():
+                logger.info("图片发送成功")
+                return True
+            logger.error("点击发送按钮失败")
+            return False
         finally:
             self._cleanup()

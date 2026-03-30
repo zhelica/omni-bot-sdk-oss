@@ -57,6 +57,13 @@ def get_center_point(
     return final_x, final_y
 
 
+def get_bbox_center_exact(bbox: List[int]) -> Tuple[int, int]:
+    """bbox 几何中心（无随机漂移），用于发送按钮、输入框等需要像素级稳定的点击。"""
+    if not bbox or len(bbox) != 4:
+        return 0, 0
+    return ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+
+
 def get_weixin_path_from_registry():
     """
     从注册表中查找微信的安装路径。

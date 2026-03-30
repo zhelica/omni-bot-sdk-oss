@@ -285,14 +285,23 @@ class UIInteractionHelper:
 
     def click_send_button(self):
         """
-        查找并点击发送按钮。
+        查找并点击发送按钮。优先点击，失败后尝试回车兜底。
         Returns:
             bool: 是否成功。
         """
-        send_button = self.controller.window_manager.get_icon_position("send_button")
-        if send_button:
-            center = get_center_point(send_button)
-            pyautogui.click(center[0], center[1])
-            time.sleep(self.controller.window_manager.action_delay)
-            return True
-        return False
+        import logging
+        logger = logging.getLogger(__name__)
+        wm = self.controller.window_manager
+        bbox = wm.get_send_button_bbox()
+        center_x, center_y = wm.get_send_button_center_exact()
+        # 点击按钮中心偏上 5-10px，命中按钮主体而非边缘
+        click_y = center_y - 8
+        logger.info(f"点击发送按钮位置: ({center_x}, {click_y}), bbox: {bbox}")
+        pyautogui.click(center_x, click_y)
+        time.sleep(self.controller.window_manager.action_delay)
+
+        # 回车兜底，双重保险
+        logger.info("回车兜底发送")
+        pyautogui.press("enter")
+        time.sleep(self.controller.window_manager.action_delay)
+        return True

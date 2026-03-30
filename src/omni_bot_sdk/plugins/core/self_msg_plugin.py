@@ -105,10 +105,12 @@ class SelfMsgPlugin(Plugin):
                 print(f"消息已被撤回，local_id: {local_id}")
 
         context = plusginExcuteContext.get_context()
+
         if message.is_self or should_intercept:
             self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True
         else:
+            self.logger.info("消息通过校验")
             plusginExcuteContext.should_stop = False
 
     def get_plugin_name(self) -> str:

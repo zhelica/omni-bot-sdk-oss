@@ -182,11 +182,12 @@ class Message:
         try:
             content = self.parsed_content or ""
             # 检查是否包含 @chat（作为独立词，避免匹配到类似 "mychat"）
-            has_chat = bool(re.search(r'@lizhe\b', content, re.IGNORECASE))
+            has_chat = bool(re.search(r'@chat\b', content, re.IGNORECASE))
+            has_let = bool(re.search(r'@let\b', content, re.IGNORECASE))
             # 检查是否包含 @chatroom（同样作为独立词）
             has_chatroom = bool(re.search(r'@chatroom\b', content, re.IGNORECASE))
 
-            return has_chat and not has_chatroom
+            return (has_chat or has_let) and not has_chatroom
         except:
             # 出错时默认返回 False，保持健壮性
             return False

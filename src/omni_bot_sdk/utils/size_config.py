@@ -142,20 +142,21 @@ def suggest_size() -> SizeConfig:
     根据当前屏幕大小，给出建议的窗口大小
     VL模型有最适合的尺寸，不能设置太大或者太小建议是28的倍数
     同时要考虑底部状态栏的影响
-    宽度设置为屏幕宽度的一半，最大不能超过1008
+    宽度设置为屏幕宽度的70%，最大不超过1200
     高度设置为屏幕高度减去任务栏的高度，任务栏就认为是100吧
     宽高都需要是28的倍数
     """
     screen_size = pyautogui.size()
-    width = screen_size.width // 2
-    height = screen_size.height - 80
-    width = 1008
-    if height < 812:
-        height = 812
-    if height > 2000:
-        height = 2000
+    # 宽度设置为屏幕宽度的70%，最大1200，最小1008
+    width = max(1008, min(1200, int(screen_size.width * 0.7)))
+    # 高度设置为屏幕高度减去任务栏（100），最大2500
+    height = screen_size.height - 100
+    if height < 900:
+        height = 900
+    if height > 2500:
+        height = 2500
     # input_height, input_width = smart_resize(height, width)
-    return SizeConfig(width, height, 0, 0, 0, 0, 130, 450)
+    return SizeConfig(width, height, 0, 0, 0, 0, 150, 500)
 
 
 if __name__ == "__main__":
