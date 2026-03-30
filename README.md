@@ -1,3 +1,9 @@
+
+没问题，我已经将**开发者交流群入口**、**打赏支持**以及**二维码占位图**整合到了文档的底部。
+
+这样安排既能让感兴趣的用户快速找到组织，也能在文档末尾自然地展示支持方式。你可以直接复制下面的内容，替换掉之前的 `README.md`：
+
+```markdown
 # Omni-Bot-SDK：基于视觉识别的微信RPA框架
 
 > ⚠️ **免责声明**
@@ -63,24 +69,22 @@ pip install -e .
 #### 方式 C：使用虚拟环境 + 路径设置 (最佳实践)
 为了隔离依赖，推荐使用虚拟环境来运行示例代码。
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/zhelica/omni-bot-sdk-oss
-cd omni-bot-sdk-oss
+# 1. 创建并激活虚拟环境
+.\.venv\Scripts\Activate.ps1
 
-# 2. 创建并激活虚拟环境 (推荐)
-python -m venv venv
-source venv/bin/activate # on Windows: venv\Scripts\activate
-#退出虚拟环境
-deactivate
-# 3. 安装开发依赖
+# 2. 在当前环境中安装 SDK
 pip install -e .
+
+# 3. 运行示例代码
+cd examples/simple-bot
+python bot.py
 ```
 
 ### 3. 启动 MQTT 服务
 MQTT 服务用于 **MCP 消息转发** 以及 **后续更新任务执行结果回调**。
 
 **Windows 用户推荐使用 NanoMQ：**
-1.  **下载安装**：前往 [NanoMQ GitHub 仓库](https://github.com/nanomq/nanomq) 获取 Windows 版本。
+1.  **下载安装**：前往 <NanoMQ GitHub 仓库> 获取 Windows 版本。
 2.  **启动服务**：下载后直接在命令行或终端中启动 NanoMQ 服务，它将作为本地的消息队列中间件运行。
     ```bash
     # 示例启动命令 (具体取决于下载版本)
@@ -90,7 +94,7 @@ MQTT 服务用于 **MCP 消息转发** 以及 **后续更新任务执行结果�
 ### 4. 获取数据库密钥 (关键步骤)
 本项目**不提供**破解数据库秘钥的工具。
 
-请参考开源项目 [wx_key仓库](https://github.com/ycccccccy/wx_key#) 获取工具，提取微信数据库密钥（DbKey）。获取后，请将密钥填入项目的 `config.yaml` 配置文件中。
+请参考开源项目 **<wx_key>** 获取工具，提取微信数据库密钥（DbKey）。获取后，请将密钥填入项目的 `config.yaml` 配置文件中。
 
 ### 5. 启动机器人
 配置好密钥及MQTT服务后，运行以下代码即可启动：
@@ -218,8 +222,34 @@ sequenceDiagram
 
 ---
 
+## 🤝 开发者交流与支持
+
+### 加入 Omni-Bot 开发者交流群
+
+如果你在使用过程中遇到问题，或者想交流 RPA 开发经验，欢迎加入我们的微信交流群。
+
+> **入群方式**：
+> 1. 扫描下方二维码添加机器人。
+> 2. 发送暗号 **“omni-bot”**，机器人会自动通过好友请求并拉你入群。
+> 3. **注意**：每天自动通过人数有限，请耐心等待。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/zhelica/omni-bot-sdk-oss/refs/heads/develop/docs/public/author.jpg?token=GHSAT0AAAAAADWJD6N27JEILTGHGHKBBJZQ2OKD2DA" alt="微信二维码名片" width="200">
+</p>
+
+### ☕️ 请作者喝杯咖啡
+
+如果这个项目对你有帮助，或者你想支持项目的持续开发，欢迎请我喝杯咖啡！
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/zhelica/omni-bot-sdk-oss/refs/heads/develop/docs/public/zs.jpg?token=GHSAT0AAAAAADWJD6N3AVI73GE6I6QKOEHE2OKDZKA" width="200">
+</p>
+
+---
+
 ## 🛑 局限性说明
 
 *   **依赖视觉环境**：由于基于OCR识别，如果微信界面分辨率变化过大或主题颜色改变，可能影响识别准确率。
 *   **操作互斥**：RPA运行时需要控制鼠标键盘，建议在独立的物理机或虚拟机中运行，避免人为操作干扰。
 *   **同名处理**：当存在多个同名联系人时，程序可能无法精准定位到目标，需配合微信号或其他唯一标识进行过滤。
+```
