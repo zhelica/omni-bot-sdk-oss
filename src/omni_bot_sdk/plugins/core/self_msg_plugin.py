@@ -1,4 +1,4 @@
-import asyncio
+import requests
 from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
@@ -42,12 +42,71 @@ class SelfMsgPlugin(Plugin):
     def get_priority(self) -> int:
         return self.priority
 
+    def check_message_recalled(self, local_id: str, username: str) -> bool:
+        """
+        通过本地接口查询消息状态，判断消息是否被撤回
+
+        Args:
+            local_id: 消息的 local_id
+            username: 会话用户名 (talker)
+
+        Returns:
+            bool: 如果消息被撤回返回 True，否则返回 False
+        """
+        try:
+            url = f"http://127.0.0.1:5031/api/v1/messages?talker={username}&limit=20"
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    messages = data.get("messages", [])
+                    for msg in messages:
+                        msg_local_id = str(msg.get("localId", ""))
+                        # 对比 local_id
+                        if msg_local_id == local_id:
+                            local_type = msg.get("localType", 0)
+                            content = msg.get("content", "")
+                            # localType = 10000 表示撤回消息，或 content 包含"撤回"
+                            if local_type == 10000 or "撤回" in content:
+                                print(f"检测到消息被撤回: local_id={local_id}, localType={local_type}, content={content}")
+                                return True
+                    print(f"未在列表中找到匹配的 local_id: {local_id}，或消息未被撤回")
+                    return False
+            else:
+                print(f"查询消息接口失败: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"调用消息接口出错: {e}")
+            return False
+
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
         print(f"检测到消息: {message}")
+
+        # 获取 bot 实例
+        bot = self.bot
+
+        # 从消息中获取所需参数
+        local_id = str(message.local_id) if hasattr(message, 'local_id') else ""
+        message_db_path = message.message_db_path
+        # 从 room 对象中获取 username，如果是群聊消息
+        username = message.room.username if message.room else None
+
+        print(f"local_id: {local_id}")
+        print(f"message_db_path: {message_db_path}")
+        print(f"username: {username}")
+
+        # 通过本地接口查询消息状态，判断是否被撤回
+        should_intercept = False
+        if username and local_id:
+            is_recalled = self.check_message_recalled(local_id, username)
+            if is_recalled:
+                should_intercept = True
+                print(f"消息已被撤回，local_id: {local_id}")
+
         context = plusginExcuteContext.get_context()
-        if message.is_self:
-            self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
+        if message.is_self or should_intercept:
+            self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True
         else:
             plusginExcuteContext.should_stop = False
