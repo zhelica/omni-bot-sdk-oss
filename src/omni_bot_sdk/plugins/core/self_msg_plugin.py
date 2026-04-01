@@ -61,9 +61,10 @@ class SelfMsgPlugin(Plugin):
                 if data.get("success"):
                     messages = data.get("messages", [])
                     for msg in messages:
-                        msg_local_id = str(msg.get("localId", ""))
+                        msg_local_id = int(msg.get("localId", 0))
+                        target_id = int(local_id)
                         # 对比 local_id
-                        if msg_local_id == local_id:
+                        if msg_local_id == target_id:
                             local_type = msg.get("localType", 0)
                             content = msg.get("content", "")
                             # localType = 10000 表示撤回消息，或 content 包含"撤回"

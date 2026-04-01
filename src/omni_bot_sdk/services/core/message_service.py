@@ -33,7 +33,7 @@ class MessageService:
     # 延迟队列最大容量
     MAX_DELAY_QUEUE_SIZE = 1000
     # 延迟时间（秒）
-    DELAY_SECONDS = 1
+    DELAY_SECONDS = 30
 
     def __init__(self, message_queue: Queue, db: DatabaseService):
         self.logger = logging.getLogger(__name__)

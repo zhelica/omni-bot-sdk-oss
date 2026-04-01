@@ -1378,8 +1378,12 @@ class WindowManager:
                 self.logger.error("回车兜底后仍处于搜索态，切换失败")
                 return False
             time.sleep(max(self.action_delay, 0.15))
-            pyautogui.press("escape")
-            time.sleep(0.2)
+            time.sleep(0.5)  # 加长等待
+            # 检查是否还在搜索态
+            if color == (255, 255, 255):
+                self.logger.warning("仍处于搜索态，再次尝试 ESC")
+                pyautogui.press("escape")
+                time.sleep(0.3)
             self.last_switch_session = target
             self.last_switch_session_time = time.time()
             return True
