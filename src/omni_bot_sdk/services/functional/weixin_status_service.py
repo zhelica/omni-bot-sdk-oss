@@ -71,7 +71,7 @@ class WeixinStatusService:
                 if not self.check_weixin_status():
                     self.logger.warning("微信状态异常，发送钉钉通知")
                     send_dingtalk_notification("微信状态异常，请检查微信是否正常运行")
-                    time.sleep(10)
+                    time.sleep(120)
                     continue
                 time.sleep(self.check_interval)
             except Exception as e:

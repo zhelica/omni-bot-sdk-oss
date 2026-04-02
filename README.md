@@ -70,7 +70,8 @@ pip install -e .
 为了隔离依赖，推荐使用虚拟环境来运行示例代码。
 ```bash
 # 1. 创建并激活虚拟环境
-.\.venv\Scripts\Activate.ps1
+python -m venv venv
+venv\Scripts\activate
 
 # 2. 在当前环境中安装 SDK
 pip install -e .
