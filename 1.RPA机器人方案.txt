@@ -1,0 +1,17 @@
+1.启动
+wx_key-windows-v2.1.8/wx_key.exe
+2.获取数据库秘钥
+wx_key-windows-v2.1.8
+双击wx_key.exe
+3.修改config.yaml的秘钥为当前登录微信
+4.下载项目
+# 1. 克隆仓库
+git clone git@gitee.com:mgwdzxn/omni-bot-sdk-oss-master.git
+cd omni-bot-sdk-oss
+
+# 2. 创建并激活虚拟环境 (推荐)
+python -m venv venv
+source venv/bin/activate # on Windows: venv\Scripts\activate
+
+# 3. 安装开发依赖
+pip install -e .
