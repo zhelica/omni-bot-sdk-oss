@@ -204,6 +204,7 @@ class MessageService:
 
                             # 检查文本内容是否包含 @chat 或 @let，只有包含这些才加入队列
                             # msg_data[-5] 是文本内容（倒数第5个元素）
+                            self.logger.info(f"msg_data: {msg_data}")
                             content = str(msg_data[12]) if len(msg_data) > 12 else ""
                             import re
                             content = re.sub(r'\u2005|\u2007|\u2009', ' ', content)
