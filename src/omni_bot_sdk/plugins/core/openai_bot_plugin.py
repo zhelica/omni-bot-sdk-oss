@@ -19,14 +19,14 @@ class OpenAIBotPluginConfig(BaseModel):
     """
     自定义 API Bot 插件配置
     enabled: 是否启用该插件
-    api_url: 自定义API接口地址
+    api_url: 备用API接口地址（默认地址）
     api_key: API密钥（如果需要）
     timeout: 请求超时时间（秒）
     priority: 插件优先级，数值越大优先级越高
     """
 
     enabled: bool = True
-    api_url: str = "https://qibaozhai.top/prod-api/wechat/msg/rpaMsg"
+    api_url: str = ""
     api_key: str = ""
     timeout: int = 70
     priority: int = 100
@@ -48,20 +48,13 @@ class OpenAIBotPlugin(Plugin):
         self.enabled = self.plugin_config.enabled
         self.priority = getattr(self.plugin_config, "priority", self.__class__.priority)
         self.user = bot.user_info
+        self.logger.info(f"插件配置已加载: api_url={self.api_url}, api_key={self.api_key[:10] if self.api_key else 'None'}...")
 
     def get_ai_response(self, msg) -> Optional[str]:
         if not self.enabled:
             self.logger.info(f"未开启投保")
             return None
         try:
-            # 清理消息内容
-            content = (
-                msg.parsed_content.replace(f"@{self.user.nickname}", "")
-                .replace("\u2005", "")
-                .strip()
-            )
-            print(f"消息内容: {content}")
-
             # 提取模板信息
             parsed_content = msg.parsed_content.replace('\u2005', ' ').strip()
             # 构造请求数据
@@ -131,19 +124,16 @@ class OpenAIBotPlugin(Plugin):
             self.logger.info(f"是群聊")
 
             if message.local_type == MessageType.Text:
-                print(f"是文本")
-                if message.is_mention_chat_only:
-                    pass
-                else:
-                    print(f"返回了")
-                    return
+                # if message.is_mention_chat_only:
+                #     pass
+                # else:
+                #     return
+                pass
             elif message.local_type == MessageType.Quote:
-                print(f"是文本类型")
                 if message.quote_message and message.quote_message.is_self:
                     pass
                 else:
                     return
-            self.logger.info(f"调用接口")
             response = self.get_ai_response(msg=message)
             if message.local_type == MessageType.Quote:
                 search_text = message.content
@@ -171,7 +161,6 @@ class OpenAIBotPlugin(Plugin):
                 )
             )
         else:
-            self.logger.info(f"是私聊的消息")
             # 私聊的消息，直接使用Dify的工作流回复
             return
         plusginExcuteContext.should_stop = True
@@ -180,7 +169,7 @@ class OpenAIBotPlugin(Plugin):
         return self.name
 
     def get_plugin_description(self) -> str:
-        return "OpenAI 聊天机器人插件"
+        return "保单投保插件"
 
     @classmethod
     def get_plugin_config_schema(cls):

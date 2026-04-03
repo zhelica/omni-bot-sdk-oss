@@ -82,11 +82,6 @@ class SelfMsgPlugin(Plugin):
 
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
-        print(f"检测到消息: {message}")
-
-        # 获取 bot 实例
-        bot = self.bot
-
         # 从消息中获取所需参数
         local_id = str(message.local_id) if hasattr(message, 'local_id') else ""
         message_db_path = message.message_db_path
@@ -104,9 +99,6 @@ class SelfMsgPlugin(Plugin):
             if is_recalled:
                 should_intercept = True
                 print(f"消息已被撤回，local_id: {local_id}")
-
-        context = plusginExcuteContext.get_context()
-
         if message.is_self or should_intercept:
             self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True

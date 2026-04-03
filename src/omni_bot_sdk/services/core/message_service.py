@@ -138,51 +138,6 @@ class MessageService:
         except Exception as e:
             self.logger.error(f"检查撤回消息时出错: {e}")
             return False
-
-    def _contains_at_target(self, content: str) -> bool:
-        """
-        检查消息内容是否应该被跳过（不加入队列）。
-        
-        逻辑说明：
-        1. 如果包含 @chatroom -> 跳过 (返回 True)
-        2. 如果包含独立的 @chat -> 放行 (返回 False)
-        3. 如果包含独立的 @let -> 放行 (返回 False)
-        4. 其他所有情况 (不包含 @chat 且 不包含 @let) -> 跳过 (返回 True)
-
-        Args:
-            content: 消息内容
-
-        Returns:
-            bool: True = 跳过 (不放队列), False = 放行 (放队列)
-        """
-        import re
-
-        if not content:
-            return True  # 空内容直接跳过
-
-        content_lower = content.lower()
-
-        # 第一步：优先检查 @chatroom
-        # 如果包含 @chatroom，无论是否看起来像 @chat，都直接跳过
-        # 使用正则确保是独立单词，避免匹配到类似 mychatroom 的情况，视具体需求而定
-        # 这里假设 @chatroom 也是以独立单词形式出现，如果只要 substring 存在即可，可去掉正则直接用 'in'
-        if re.search(r'(?<![\w])@chatroom(?![\w])', content, re.IGNORECASE):
-            return True  # 跳过
-
-        # 第二步：检查是否包含独立的 @chat
-        has_chat = bool(re.search(r'(?<![\w])@chat(?![\w])', content, re.IGNORECASE))
-        
-        # 第三步：检查是否包含独立的 @let
-        has_let = bool(re.search(r'(?<![\w])@let(?![\w])', content, re.IGNORECASE))
-
-        # 第四步：决策
-        # 只有当包含 @chat 或者 @let 时，才放行 (返回 False)
-        # 否则 (既没有 @chat 也没有 @let)，跳过 (返回 True)
-        if has_chat or has_let:
-            return False  # 放行，加入队列
-        else:
-            return True   # 跳过，不加入队列
-
     def _process_delayed_messages(self):
         """处理延迟队列中已到期的消息"""
         current_time = time.time()
@@ -240,16 +195,22 @@ class MessageService:
                                 self.seen_message_types.add(msg_type)
                                 self.logger.info(f"发现新消息类型: {msg_type}")
 
-                            print(f"msg_data: {msg_data}")
-                            # 检查消息内容是否包含 @chat/@let/@chatroom，这些需要加入队列
-                            # content = msg_data[12] if len(msg_data) > 12 else ""
-                            # if content and self._contains_at_target(str(content)):
-                            #     continue
-
                             # 只处理 msg_type = 1 的消息，其他类型不加入延迟队列
                             if msg_type != 1:
                                 self.logger.info(
                                     f"跳过非文本消息: {table_name}, 类型: {msg_type}"
+                                )
+                                continue
+
+                            # 检查文本内容是否包含 @chat 或 @let，只有包含这些才加入队列
+                            # msg_data[-5] 是文本内容（倒数第5个元素）
+                            content = str(msg_data[12]) if len(msg_data) > 12 else ""
+                            import re
+                            content = re.sub(r'\u2005|\u2007|\u2009', ' ', content)
+                            self.logger.info(f"content: {content}")
+                            if "@chat" not in content and "@let" not in content:
+                                self.logger.info(
+                                    f"跳过不包含@chat或@let的消息: {table_name}, 内容: {content[:50]}..."
                                 )
                                 continue
 
