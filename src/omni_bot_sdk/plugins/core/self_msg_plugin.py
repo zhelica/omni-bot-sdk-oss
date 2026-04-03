@@ -84,13 +84,8 @@ class SelfMsgPlugin(Plugin):
         message = plusginExcuteContext.get_message()
         # 从消息中获取所需参数
         local_id = str(message.local_id) if hasattr(message, 'local_id') else ""
-        message_db_path = message.message_db_path
         # 从 room 对象中获取 username，如果是群聊消息
         username = message.room.username if message.room else None
-
-        print(f"local_id: {local_id}")
-        print(f"message_db_path: {message_db_path}")
-        print(f"username: {username}")
 
         # 通过本地接口查询消息状态，判断是否被撤回
         should_intercept = False

@@ -128,7 +128,6 @@ class OpenAIBotPlugin(Plugin):
                     pass
                 else:
                     return
-                pass
             elif message.local_type == MessageType.Quote:
                 if message.quote_message and message.quote_message.is_self:
                     pass
