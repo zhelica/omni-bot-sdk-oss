@@ -282,14 +282,51 @@ class WindowManager:
             return [x1, y1, x2, y2]
 
     def get_send_button_bbox(self) -> List[int]:
-        """返回可信的发送按钮 [x1,y1,x2,y2]，无效时回退并写回缓存。"""
+        """
+        返回可信的发送按钮 [x1,y1,x2,y2]。
+
+        策略：
+        1. 先检查缓存是否有效
+        2. 如果缓存无效，尝试 fallback 计算
+        3. 如果 fallback 结果尺寸仍然不合理，使用初始化时的比例估算
+        """
         raw = self.get_icon_position("send_button")
+
+        # 检查缓存是否有效
         if raw and self._is_plausible_send_button_bbox(raw):
             return list(map(int, raw))
-        fb = self._fallback_send_button_bbox()
-        self.ICON_CONFIGS["send_button"]["position"] = fb
-        self.logger.warning("发送按钮缓存无效 %s，已回退: %s", raw, fb)
-        return fb
+
+        # 缓存无效，尝试 fallback 计算
+        try:
+            fb = self._fallback_send_button_bbox()
+            # 检查 fallback 结果是否合理
+            if self._is_plausible_send_button_bbox(fb):
+                self.ICON_CONFIGS["send_button"]["position"] = fb
+                self.logger.info("fallback 计算的发送按钮有效: %s", fb)
+                return list(map(int, fb))
+            else:
+                self.logger.warning("fallback 计算的发送按钮仍无效: %s，尝试比例估算", fb)
+        except Exception as e:
+            self.logger.warning("fallback 计算失败: %s，尝试比例估算", e)
+
+        # fallback 失败或结果不合理，使用比例估算（基于窗口右下角）
+        win_w = self.size_config.width
+        win_h = self.size_config.height
+        x2 = win_w - 8
+        y2 = win_h - 8
+        x1 = x2 - 80  # 按钮宽度约 80px
+        y1 = y2 - 30  # 按钮高度约 30px
+
+        # 验证比例估算结果
+        estimated = [x1, y1, x2, y2]
+        if self._is_plausible_send_button_bbox(estimated):
+            self.ICON_CONFIGS["send_button"]["position"] = estimated
+            self.logger.info("比例估算成功: %s", estimated)
+            return estimated
+
+        # 最后的兜底方案：返回之前 fallback 的结果（即使不完美也能用）
+        self.logger.warning("所有方法都无法获得完美的发送按钮bbox，使用 fallback 结果")
+        return fb if fb else estimated
 
     def get_send_button_center_exact(self) -> Tuple[int, int]:
         return get_bbox_center_exact(self.get_send_button_bbox())
@@ -1338,17 +1375,27 @@ class WindowManager:
         切换会话
         这里要区分切换会话和切换窗口，如果是分离的对话，那么直接切换，也可能是切换别的窗口
         """
+        now = time.time()
+        # 超过3分钟未切换会话，清除缓存
+        if self.last_switch_session_time and now - self.last_switch_session_time > 180:
+            self.last_switch_session = None
+            self.last_switch_session_time = None
+            self.logger.info("会话缓存已超时，清除缓存")
+
         self.logger.info(f"切换会话: {target}")
         if target in self.weixin_windows:
             self.switch_window(target)
             return True
         else:
-            # 每次都执行完整的搜索切换流程，确保切换到正确的会话
-            # 移除不可靠的缓存检查，避免不同群聊消息时误判
+            # 激活微信窗口
             self.switch_window("微信")
 
-            # 切换对话：Ctrl+F → 粘贴关键词 → 截图搜索浮层 → OCR 找「联系人/群聊/功能」→
-            # 点击最靠上分类标签下方的首条结果（不回车，避免点到「搜索网络」等第一项）。
+            # 如果当前已经在目标会话中，且缓存未超时，直接返回
+            if self.last_switch_session == target:
+                self.logger.info(f"已经切换到: {target}，缓存有效，直接返回True")
+                return True
+
+            # 缓存失效或切换到新会话，执行搜索切换流程
             self.logger.info(f"使用搜索切换到: {target}")
             time.sleep(self.action_delay)
             pyautogui.hotkey("ctrl", "f")
@@ -1437,16 +1484,29 @@ class WindowManager:
                 pass
             return True
 
-    def long_press_menu(self, target: str, duration: int = 1) -> bool:
+    def long_press_menu(self, target: str, duration: int = 1, clear_session_cache: bool = False) -> bool:
         """
         长按菜单
+
+        Args:
+            target: 菜单名称
+            duration: 长按时长（秒）
+            clear_session_cache: 是否清除会话缓存。
+                - True: 点击了会话列表中的其他联系人，需要清除缓存
+                - False: 只是在当前聊天中操作（如长按消息），保持缓存避免重复搜索
         """
         menu = self.ICON_CONFIGS.get(target)
         if not menu:
             self.logger.error("菜单不存在")
             return False
-        self.last_switch_session = None
-        self.last_switch_session_time = None
+
+        if clear_session_cache:
+            self.last_switch_session = None
+            self.last_switch_session_time = None
+            self.logger.info("长按菜单操作会切换会话，清除会话缓存")
+        else:
+            self.logger.info("长按菜单操作保持在当前会话，保持会话缓存")
+
         center_point = get_center_point(menu.get("position"))
         human_like_mouse_move(target_x=center_point[0], target_y=center_point[1])
         pyautogui.mouseDown(button="left")
@@ -1454,15 +1514,29 @@ class WindowManager:
         pyautogui.mouseUp(button="left")
         return True
 
-    def switch_menu(self, target: str) -> bool:
+    def switch_menu(self, target: str, clear_session_cache: bool = False) -> bool:
+        """
+        切换菜单
+
+        Args:
+            target: 菜单名称（聊天、联系人、收藏、朋友圈等）
+            clear_session_cache: 是否清除会话缓存。
+                - True: 点击了左侧菜单栏切换到其他标签页，需要清除缓存
+                - False: 只是在当前聊天页面点击菜单（如查看联系人资料），保持缓存避免重复搜索
+        """
         self.logger.info(f"切换菜单{target}")
         menu = self.ICON_CONFIGS.get(target)
         if not menu:
             self.logger.error("菜单不存在")
             return False
 
-        self.last_switch_session = None
-        self.last_switch_session_time = None
+        if clear_session_cache:
+            self.last_switch_session = None
+            self.last_switch_session_time = None
+            self.logger.info("切换菜单会切换会话，清除会话缓存")
+        else:
+            self.logger.info("切换菜单保持在当前会话，保持会话缓存")
+
         center_point = get_center_point(menu.get("position"))
         human_like_mouse_move(target_x=center_point[0], target_y=center_point[1])
         pyautogui.click()
@@ -1577,14 +1651,14 @@ class WindowManager:
         """
         打开朋友圈窗口
         """
-        self.switch_menu(MenuTypeEnum.Friend.value)
+        self.switch_menu(MenuTypeEnum.Friend.value, clear_session_cache=True)
         time.sleep(self.scroll_delay)
         # 调用gerwindow方法检查是否存在，如果存在，需要把friend这个窗口移到边上去，防止覆盖
         friend_window = self.get_window(WindowTypeEnum.FriendWindow)
         if friend_window:
             return friend_window
         else:
-            self.switch_menu(MenuTypeEnum.Friend.value)
+            self.switch_menu(MenuTypeEnum.Friend.value, clear_session_cache=True)
             return None
 
     def open_friend_send_window(

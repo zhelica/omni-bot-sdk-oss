@@ -55,14 +55,6 @@ class OpenAIBotPlugin(Plugin):
             self.logger.info(f"未开启投保")
             return None
         try:
-            # 清理消息内容
-            content = (
-                msg.parsed_content.replace(f"@{self.user.nickname}", "")
-                .replace("\u2005", "")
-                .strip()
-            )
-            print(f"消息内容: {content}")
-
             # 提取模板信息
             parsed_content = msg.parsed_content.replace('\u2005', ' ').strip()
             # 构造请求数据
@@ -132,19 +124,15 @@ class OpenAIBotPlugin(Plugin):
             self.logger.info(f"是群聊")
 
             if message.local_type == MessageType.Text:
-                print(f"是文本")
                 if message.is_mention_chat_only:
                     pass
                 else:
-                    print(f"返回了")
                     return
             elif message.local_type == MessageType.Quote:
-                print(f"是文本类型")
                 if message.quote_message and message.quote_message.is_self:
                     pass
                 else:
                     return
-            self.logger.info(f"调用接口")
             response = self.get_ai_response(msg=message)
             if message.local_type == MessageType.Quote:
                 search_text = message.content
@@ -172,7 +160,6 @@ class OpenAIBotPlugin(Plugin):
                 )
             )
         else:
-            self.logger.info(f"是私聊的消息")
             # 私聊的消息，直接使用Dify的工作流回复
             return
         plusginExcuteContext.should_stop = True
