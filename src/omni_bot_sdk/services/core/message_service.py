@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 from omni_bot_sdk.services.core.database_service import DatabaseService
 import re
+from omni_bot_sdk.weixin.parser.util.common import decompress
 
 
 class DelayedMessage:
@@ -204,42 +205,55 @@ class MessageService:
                                 continue
 
                             # 检查文本内容是否包含 @chat 或 @let，只有包含这些才加入队列
-                            # msg_data 结构不固定，需要遍历查找包含 @chat 或 @let 的元素
                             self.logger.info(f"msg_data: {msg_data}")
-                            # content = ""
-                            # has_at_keyword = False
-                            #
-                            # # UTF-8 编码的 @chat 和 @let 字节序列
-                            # at_chat_bytes = b'@chat'
-                            # at_let_bytes = b'@let'
-                            #
-                            # # 遍历 msg_data 的元素，查找包含 @chat 或 @let 的 bytes
-                            # for i, item in enumerate(msg_data):
-                            #     if isinstance(item, bytes):
-                            #         # 先尝试直接解码（明文情况）
-                            #         try:
-                            #             decoded = item.decode('utf-8')
-                            #             decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
-                            #             if '@chat' in decoded or '@let' in decoded:
-                            #                 content = decoded
-                            #                 has_at_keyword = True
-                            #                 self.logger.info(f"在 msg_data[{i}] 解码明文找到包含@的关键内容")
-                            #                 break
-                            #         except Exception:
-                            #             # 解码失败，可能是加密数据，直接检查 bytes 中是否包含 @ 关键字
-                            #             if at_chat_bytes in item or at_let_bytes in item:
-                            #                 content = f"[加密消息，包含@{item[:50].hex() if len(item) > 50 else item.hex()}]"
-                            #                 has_at_keyword = True
-                            #                 self.logger.info(f"在 msg_data[{i}] 加密数据中找到@关键字")
-                            #                 break
-                            #
-                            # self.logger.info(f"content: {content}")
-                            #
-                            # if not has_at_keyword:
-                            #     self.logger.info(
-                            #         f"跳过不包含@chat或@let的消息: {table_name}"
-                            #     )
-                            #     continue
+                            content = ""
+                            has_at_keyword = False
+
+                            # 遍历 msg_data 的元素，查找包含 @chat 或 @let 的元素
+                            for i, item in enumerate(msg_data):
+                                # 处理字符串类型
+                                if isinstance(item, str):
+                                    text = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', item)
+                                    if '@chat' in text or '@let' in text:
+                                        content = text
+                                        has_at_keyword = True
+                                        self.logger.info(f"在 msg_data[{i}] 字符串中找到包含@的关键内容")
+                                        break
+                                # 处理 bytes 类型（可能是 zstd 加密的）
+                                elif isinstance(item, bytes):
+                                    # 先尝试用 decompress 解密
+                                    try:
+                                        decoded = decompress(item)
+                                        if decoded:
+                                            # 解密后先替换特殊字符
+                                            decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
+                                            if '@chat' in decoded or '@let' in decoded:
+                                                content = decoded
+                                                has_at_keyword = True
+                                                self.logger.info(
+                                                    f"在 msg_data[{i}] decompress解密后找到包含@的关键内容")
+                                                break
+                                    except Exception:
+                                        pass
+                                    # 如果 decompress 失败，尝试直接解码
+                                    try:
+                                        decoded = item.decode('utf-8')
+                                        decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
+                                        if '@chat' in decoded or '@let' in decoded:
+                                            content = decoded
+                                            has_at_keyword = True
+                                            self.logger.info(f"在 msg_data[{i}] UTF-8解码中找到包含@的关键内容")
+                                            break
+                                    except Exception:
+                                        pass
+
+                            self.logger.info(f"content: {content}")
+
+                            if not has_at_keyword:
+                                self.logger.info(
+                                    f"跳过不包含@chat或@let的消息: {table_name}"
+                                )
+                                continue
 
                             # 检查延迟队列容量
                             if len(self._delayed_messages) >= self.MAX_DELAY_QUEUE_SIZE:

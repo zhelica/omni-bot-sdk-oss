@@ -124,10 +124,11 @@ class OpenAIBotPlugin(Plugin):
             self.logger.info(f"是群聊")
 
             if message.local_type == MessageType.Text:
-                if message.is_mention_chat_only:
-                    pass
-                else:
-                    return
+                # if message.is_mention_chat_only:
+                #     pass
+                # else:
+                #     return
+                pass
             elif message.local_type == MessageType.Quote:
                 if message.quote_message and message.quote_message.is_self:
                     pass
