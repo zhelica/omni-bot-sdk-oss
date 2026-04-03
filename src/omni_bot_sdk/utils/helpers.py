@@ -149,12 +149,12 @@ def send_dingtalk_notification(
     message: str, at_mobiles: Optional[list] = None, is_at_all: bool = False
 ) -> bool:
     """
-    发送钉钉通知消息
+    发送通知消息（通过HTTP接口）
 
     Args:
         message: 要发送的消息内容
-        at_mobiles: 要@的手机号列表
-        is_at_all: 是否@所有人
+        at_mobiles: 要@的手机号列表（暂未使用）
+        is_at_all: 是否@所有人（暂未使用）
 
     Returns:
         bool: 发送是否成功
@@ -163,39 +163,44 @@ def send_dingtalk_notification(
         # 读取配置文件
         with open("config.yaml", "r", encoding="utf-8") as f:
             config = YAML().load(f)
-            webhook_url = config["dingtalk"]["webhook_url"]
+            bot_config = config.get("bot_notify", {})
+            send_url = bot_config.get("send_url")
+            ilink_bot_id = bot_config.get("ilink_bot_id")
+            secret = bot_config.get("secret")
+            to_user_id = bot_config.get("to_user_id")
     except Exception as e:
-        print(f"读取钉钉配置失败: {str(e)}")
+        print(f"读取配置文件失败: {str(e)}")
         return False
 
-    # 添加前缀
-    full_message = f"微信：{message}"
+    if not all([send_url, ilink_bot_id, secret, to_user_id]):
+        print("bot_notify配置不完整")
+        return False
 
     # 构建消息体
     data = {
-        "msgtype": "text",
-        "text": {"content": full_message},
-        "at": {"atMobiles": at_mobiles or [], "isAtAll": is_at_all},
+        "ilinkBotId": ilink_bot_id,
+        "secret": secret,
+        "toUserId": to_user_id,
+        "content": message,
+        "mediaType": 2,
     }
 
     try:
-        # 发送POST请求
         response = requests.post(
-            webhook_url,
+            send_url,
             headers={"Content-Type": "application/json"},
             data=json.dumps(data),
+            timeout=30,
         )
 
-        # 检查响应
-        result = response.json()
-        if result.get("errcode") == 0:
+        if response.status_code == 200:
             return True
         else:
-            print(f"钉钉消息发送失败: {result.get('errmsg')}")
+            print(f"消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
             return False
 
     except Exception as e:
-        print(f"钉钉消息发送异常: {str(e)}")
+        print(f"消息发送异常: {str(e)}")
         return False
 
 
@@ -203,13 +208,13 @@ def send_dingtalk_markdown_notification(
     title: str, url: str, at_mobiles: Optional[list] = None, is_at_all: bool = False
 ) -> bool:
     """
-    发送钉钉 Markdown 格式的通知消息，包含图片url
+    发送图片消息（通过HTTP接口）
 
     Args:
         title: 消息标题
         url: 图片的url
-        at_mobiles: 要@的手机号列表
-        is_at_all: 是否@所有人
+        at_mobiles: 要@的手机号列表（暂未使用）
+        is_at_all: 是否@所有人（暂未使用）
 
     Returns:
         bool: 发送是否成功
@@ -218,41 +223,44 @@ def send_dingtalk_markdown_notification(
         # 读取配置文件
         with open("config.yaml", "r", encoding="utf-8") as f:
             config = YAML().load(f)
-            webhook_url = config["dingtalk"]["webhook_url"]
+            bot_config = config.get("bot_notify", {})
+            send_url = bot_config.get("send_url")
+            ilink_bot_id = bot_config.get("ilink_bot_id")
+            secret = bot_config.get("secret")
+            to_user_id = bot_config.get("to_user_id")
     except Exception as e:
-        print(f"读取钉钉配置失败: {str(e)}")
+        print(f"读取配置文件失败: {str(e)}")
         return False
 
-    # 构建 Markdown 内容
-    markdown_content = f"""### {title}
-![图片]({url})
-"""
+    if not all([send_url, ilink_bot_id, secret, to_user_id]):
+        print("bot_notify配置不完整")
+        return False
 
-    # 构建消息体
+    # 构建消息体，content为图片地址
     data = {
-        "msgtype": "markdown",
-        "markdown": {"title": title, "text": markdown_content},
-        "at": {"atMobiles": at_mobiles or [], "isAtAll": is_at_all},
+        "ilinkBotId": ilink_bot_id,
+        "secret": secret,
+        "toUserId": to_user_id,
+        "content": url,
+        "mediaType": 2,
     }
 
     try:
-        # 发送POST请求
         response = requests.post(
-            webhook_url,
+            send_url,
             headers={"Content-Type": "application/json"},
             data=json.dumps(data),
+            timeout=30,
         )
 
-        # 检查响应
-        result = response.json()
-        if result.get("errcode") == 0:
+        if response.status_code == 200:
             return True
         else:
-            print(f"钉钉消息发送失败: {result.get('errmsg')}")
+            print(f"图片消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
             return False
 
     except Exception as e:
-        print(f"钉钉消息发送异常: {str(e)}")
+        print(f"图片消息发送异常: {str(e)}")
         return False
 
 
@@ -547,3 +555,38 @@ def ensure_dir_exists(path: str):
     """
     if not Path(path).exists():
         Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def upload_image_to_http_server(
+    image_path: str,
+    upload_url: str,
+    file_field_name: str = "file",
+    extra_data: Optional[dict] = None,
+) -> Optional[str]:
+    """
+    通过HTTP协议上传图片到服务器
+
+    Args:
+        image_path: 本地图片路径
+        upload_url: 上传接口URL
+        file_field_name: 文件字段名，默认为 "file"
+        extra_data: 额外的表单数据
+
+    Returns:
+        str: 服务器返回的图片访问URL，失败返回None
+    """
+    try:
+        with open(image_path, "rb") as f:
+            files = {file_field_name: f}
+            data = extra_data or {}
+            response = requests.post(upload_url, files=files, data=data, timeout=30)
+
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("url") or result.get("data", {}).get("url")
+        else:
+            print(f"HTTP上传失败，状态码: {response.status_code}, 响应: {response.text}")
+            return None
+    except Exception as e:
+        print(f"HTTP上传异常: {str(e)}")
+        return None

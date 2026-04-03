@@ -9,9 +9,6 @@ import time
 from typing import Optional
 
 import pyautogui
-import uuid
-import boto3
-import io
 from omni_bot_sdk.rpa.image_processor import ImageProcessor
 from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
 from omni_bot_sdk.rpa.window_manager import WindowManager, WindowTypeEnum
@@ -19,6 +16,7 @@ from omni_bot_sdk.utils.helpers import (
     get_center_point,
     send_dingtalk_markdown_notification,
     send_dingtalk_notification,
+    upload_image_to_http_server,
 )
 
 
@@ -71,9 +69,9 @@ class WeixinStatusService:
         while self.is_running:
             try:
                 if not self.check_weixin_status():
-                    self.logger.warning("微信状态异常，发送钉钉通知")
+                    self.logger.warning("微信状态异常，发送微信通知")
                     send_dingtalk_notification("微信状态异常，请检查微信是否正常运行")
-                    time.sleep(10)
+                    time.sleep(10)  # 异常状态10s检查一次
                     continue
                 time.sleep(self.check_interval)
             except Exception as e:
@@ -154,31 +152,35 @@ class WeixinStatusService:
 
             if len(parser_result4) > 0:
                 self.logger.info("存在扫码登录按钮，需要扫码登录")
-                # 读取S3配置
-                s3_conf = self.config.get("s3", {})
-                object_name = f"weixin_status_{uuid.uuid4().hex}.png"
-                s3_client = boto3.client(
-                    service_name="s3",
-                    endpoint_url=s3_conf.get("endpoint_url"),
-                    aws_access_key_id=s3_conf.get("access_key"),
-                    aws_secret_access_key=s3_conf.get("secret_key"),
-                    region_name=s3_conf.get("region"),
-                )
-                bucket_name = s3_conf.get("bucket")
-                public_url_prefix = s3_conf.get("public_url_prefix", "")
+                # 读取HTTP上传配置
+                http_conf = self.config.get("http_upload", {})
+                upload_url = http_conf.get("upload_url")
+
+                if not upload_url:
+                    self.logger.error("未配置HTTP上传URL")
+                    send_dingtalk_notification("未配置图片上传服务")
+                    return False
+
                 try:
-                    with open("runtime_images/weixin_status.png", "rb") as f:
-                        s3_client.upload_fileobj(
-                            io.BytesIO(f.read()), bucket_name, object_name
-                        )
-                    r2_url = f"{public_url_prefix.rstrip('/')}/{object_name}"
-                    send_dingtalk_markdown_notification("微信二维码登录", r2_url)
-                    self.logger.info(f"上传二维码到R2成功: {r2_url}")
+                    # 上传到HTTP服务器（若依框架直接返回完整URL）
+                    result_url = upload_image_to_http_server(
+                        image_path="runtime_images/weixin_status.png",
+                        upload_url=upload_url,
+                    )
+
+                    if result_url:
+                        send_dingtalk_markdown_notification("微信二维码登录", result_url)
+                        self.logger.info(f"上传二维码成功: {result_url}")
+                    else:
+                        self.logger.error("上传二维码到HTTP服务器失败")
+                        send_dingtalk_notification("上传二维码失败")
+                        return False
+
                     time.sleep(5)
                     return False
                 except Exception as e:
-                    self.logger.error(f"上传二维码到R2失败: {e}")
-                    send_dingtalk_notification(f"上传二维码到R2失败: {e}")
+                    self.logger.error(f"上传二维码失败: {e}")
+                    send_dingtalk_notification(f"上传二维码失败: {e}")
                     return False
             else:
                 # self.logger.error("全部流程都找不到，但是窗口大小不正常，提示用户")
