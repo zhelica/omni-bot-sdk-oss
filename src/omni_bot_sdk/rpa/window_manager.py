@@ -861,12 +861,17 @@ class WindowManager:
             搜索框边界框 [x1, y1, x2, y2] 或 None
         """
         try:
+            # 使用实际测量的侧边栏宽度，如果没有则使用比例计算
+            side_bar_width = self.SIDE_BAR_WIDTH if self.SIDE_BAR_WIDTH > 0 else int(self.size_config.width * 0.07)
+            session_list_width = self.SESSION_LIST_WIDTH if self.SESSION_LIST_WIDTH > 0 else int(self.size_config.width * 0.2)
+            title_bar_height = self.TITLE_BAR_HEIGHT if self.TITLE_BAR_HEIGHT > 0 else int(self.size_config.height * 0.05)
+
             # 扫描会话列表上方的搜索区域
             search_region = [
-                self.SIDE_BAR_WIDTH,
+                side_bar_width,
                 10,
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH,
-                self.TITLE_BAR_HEIGHT,
+                side_bar_width + session_list_width,
+                title_bar_height + 50,  # 扩展高度以覆盖搜索框
             ]
             screenshot = self.image_processor.take_screenshot(region=search_region)
             result = self.ocr_processor.process_image(image=screenshot)
@@ -1260,14 +1265,19 @@ class WindowManager:
             )
         else:
             # 主窗口左上区域，覆盖侧边栏+会话列表+搜索框浮层
-            search_floating_w = int(self.size_config.width * 0.42)
-            search_floating_h = int(self.size_config.height * 0.55)
-            region = [0, 0, search_floating_w, search_floating_h]
-            self.logger.warning(
-                "未匹配到 SearchContactWindow，使用主窗口左上区域截图 OCR "
-                "SIDE_BAR=%s SESSION_LIST=%s w=%s h=%s",
+            # 使用实际测量的 SIDE_BAR_WIDTH + SESSION_LIST_WIDTH，而不是固定比例
+            search_region_width = self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH
+            search_region_height = self.TITLE_BAR_HEIGHT * 5 if self.TITLE_BAR_HEIGHT > 0 else int(self.size_config.height * 0.2)
+            # 如果实际测量值无效，使用比例作为后备
+            if search_region_width <= 0:
+                search_region_width = int(self.size_config.width * 0.42)
+            if search_region_height <= 0:
+                search_region_height = int(self.size_config.height * 0.55)
+            region = [0, 0, search_region_width, search_region_height]
+            self.logger.info(
+                "使用实际测量区域截图 OCR: SIDE_BAR=%s SESSION_LIST=%s w=%s h=%s",
                 self.SIDE_BAR_WIDTH, self.SESSION_LIST_WIDTH,
-                search_floating_w, search_floating_h,
+                search_region_width, search_region_height,
             )
 
         screenshot = self.image_processor.take_screenshot(region=region)
