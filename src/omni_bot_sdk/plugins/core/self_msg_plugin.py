@@ -69,15 +69,12 @@ class SelfMsgPlugin(Plugin):
                             content = msg.get("content", "")
                             # localType = 10000 表示撤回消息，或 content 包含"撤回"
                             if local_type == 10000 or "撤回" in content:
-                                print(f"检测到消息被撤回: local_id={local_id}, localType={local_type}, content={content}")
+                                self.logger.info(f"检测到消息被撤回: local_id={local_id}, localType={local_type}, content={content}")
                                 return True
-                    print(f"未在列表中找到匹配的 local_id: {local_id}，或消息未被撤回")
                     return False
             else:
-                print(f"查询消息接口失败: {response.status_code}")
                 return False
         except Exception as e:
-            print(f"调用消息接口出错: {e}")
             return False
 
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
@@ -93,7 +90,7 @@ class SelfMsgPlugin(Plugin):
             is_recalled = self.check_message_recalled(local_id, username)
             if is_recalled:
                 should_intercept = True
-                print(f"消息已被撤回，local_id: {local_id}")
+                self.logger.info(f"消息已被撤回，local_id: {local_id}")
         if message.is_self or should_intercept:
             self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True

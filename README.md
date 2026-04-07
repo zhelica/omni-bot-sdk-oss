@@ -71,7 +71,7 @@ pip install -e .
 ```bash
 # 1. 创建并激活虚拟环境
 python -m venv venv
-.\.venv\Scripts\Activate.ps1
+.\venv\Scripts\Activate.ps1
 
 # 2. 在当前环境中安装 SDK
 pip install -e .
