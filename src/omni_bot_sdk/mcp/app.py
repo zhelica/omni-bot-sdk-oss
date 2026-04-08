@@ -19,6 +19,7 @@ from omni_bot_sdk.models import Contact, UserInfo
 from omni_bot_sdk.rpa.action_handlers import RPAActionType
 from omni_bot_sdk.services.core.database_service import DatabaseService
 from omni_bot_sdk.weixin.message_classes import MessageType
+from omni_bot_sdk.rpa.action_handlers import RecallMessageAction
 
 # 配置日志记录
 logger = logging.getLogger(__name__)
@@ -547,6 +548,69 @@ def create_app(db: DatabaseService, user_info: UserInfo, config: dict) -> FastMC
         return app_context.command_dispatcher.dispatch_rpa(
             RPAActionType.LEAVE_ROOM.value, {"target": room.display_name}
         )
+
+    @mcp.tool()
+    @handle_tool_exceptions
+    def recall_message(
+        ctx: Context,
+        contact_name: str,
+        message_text: Optional[str] = None,
+        keyword: Optional[str] = None,
+        recall_latest: bool = False,
+        similarity: float = 0.6,
+    ) -> str:
+        """
+        撤回指定用户或群组中的消息。
+        支持三种撤回方式：
+        1. 通过消息内容撤回（精确匹配）
+        2. 通过关键词撤回（模糊匹配）
+        3. 撤回最新消息
+
+        Args:
+            contact_name: 联系人或群组名称
+            message_text: 要撤回的消息内容（精确匹配）
+            keyword: 关键词（模糊匹配，当message_text为空时使用）
+            recall_latest: 是否撤回最新消息（优先级最高）
+            similarity: 文本相似度阈值（0-1），默认0.6
+
+        Returns:
+            str: 撤回操作结果
+        """
+        app_context = _get_app_context_from_request(ctx)
+
+        # 先验证联系人是否存在
+        contact, error = _resolve_recipient(ctx, contact_name)
+        if error:
+            return error
+
+        # 构建撤回动作参数
+        action_params = {
+            "contact_name": contact.display_name,
+            "recall_latest": recall_latest,
+            "similarity": similarity,
+        }
+
+        if message_text:
+            action_params["message_text"] = message_text
+        elif keyword:
+            action_params["keyword"] = keyword
+        elif not recall_latest:
+            return "错误：请提供 message_text、keyword 或设置 recall_latest=True"
+
+        # 通过 MQTT 分发撤回动作
+        topic = f"msg/{app_context.userinfo.account}/rpa_action"
+        payload = {
+            "action_type": RPAActionType.RECALL_MESSAGE.value,
+            "params": action_params,
+        }
+        app_context.command_dispatcher.dispatch(topic, payload)
+
+        if recall_latest:
+            return f"撤回最新消息任务已提交到 '{contact.display_name}'。"
+        elif message_text:
+            return f"撤回包含 '{message_text}' 的消息任务已提交到 '{contact.display_name}'。"
+        else:
+            return f"撤回包含关键词 '{keyword}' 的消息任务已提交到 '{contact.display_name}'。"
 
     return mcp
 

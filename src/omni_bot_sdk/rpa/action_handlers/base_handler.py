@@ -42,6 +42,7 @@ class RPAActionType(Enum):
     RENAME_NAME_IN_ROOM = "rename_name_in_room"
     LEAVE_ROOM = "leave_room"
     SEND_TEXT_MESSAGE = "send_text_message"
+    RECALL_MESSAGE = "recall_message"
 
 
 @dataclass

@@ -10,6 +10,7 @@ import time
 from queue import Empty, Queue
 from typing import Callable, Dict, List, Optional, Tuple
 from pathlib import Path
+import httpx
 from omni_bot_sdk.services.core.database_service import DatabaseService
 from omni_bot_sdk.weixin.parser.util.common import decompress
 
@@ -32,21 +33,20 @@ class DelayedMessage:
 
 
 class MessageService:
-    # 延迟队列最大容量
     MAX_DELAY_QUEUE_SIZE = 1000
-    # 延迟时间（秒）
-    DELAY_SECONDS = 30
 
-    def __init__(self, message_queue: Queue, db: DatabaseService):
+    def __init__(self, message_queue: Queue, db: DatabaseService, auto_consume: bool = True, delay_seconds: int = 30, callback_url: str = ""):
         self.logger = logging.getLogger(__name__)
         self.message_queue = message_queue
         self.db = db
         self.is_running = False
-        self.is_paused = False  # 新增：用于标记是否暂停
+        self.is_paused = False
+        self.auto_consume = auto_consume
+        self.DELAY_SECONDS = delay_seconds
+        self.callback_url = callback_url
         self.thread: Optional[threading.Thread] = None
-        self.seen_message_types = set()  # 用于记录见过的消息类型
+        self.seen_message_types = set()
         self.callback: Optional[Callable] = None
-        # 延迟队列：存储待延迟处理的消息
         self._delayed_messages: List[DelayedMessage] = []
         self._delayed_lock = threading.Lock()
 
@@ -154,25 +154,76 @@ class MessageService:
                 else:
                     remaining_delayed.append(delayed_msg)
 
-            # 只保留未到期的消息
             self._delayed_messages = remaining_delayed
 
-        # 处理到期的消息
         for delayed_msg in messages_to_process:
             try:
                 msg = delayed_msg.message
                 table_name, msg_data = msg
                 msg_type = msg_data[2] if len(msg_data) > 2 else "unknown"
-                # 延迟到期后，重新查询消息当前状态
+
                 self.logger.info(
                     f"延迟消息处理，来自于{Path(msg_data[-1]).name} : {table_name}, 消息类型: {msg_type}"
                 )
+
+                # 放入消息队列
                 self.message_queue.put(msg)
 
+                # 调用回调
                 if self.callback:
                     self.callback([msg])
+
+                # 发送到回调URL
+                if self.callback_url:
+                    self._send_to_callback(delayed_msg, msg_data)
             except Exception as e:
                 self.logger.error(f"处理延迟消息时出错: {e}")
+
+    def _send_to_callback(self, delayed_msg: DelayedMessage, msg_data: tuple):
+        """发送消息到回调URL"""
+        try:
+            # 从 msg_data 中提取解密后的内容
+            content = self._extract_content(msg_data)
+
+            callback_data = {
+                "server_id": delayed_msg.server_id,
+                "username": delayed_msg.username,
+                "content": content
+            }
+
+            response = httpx.post(
+                self.callback_url,
+                json=callback_data,
+                timeout=10
+            )
+            self.logger.info(f"消息已回调至 {self.callback_url}, 响应: {response.status_code}")
+        except Exception as e:
+            self.logger.error(f"发送回调失败: {e}")
+
+    def _extract_content(self, msg_data: tuple) -> str:
+        """从消息数据中提取解密后的文本内容"""
+        for item in msg_data:
+            if isinstance(item, str):
+                text = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', item)
+                if '@chat' in text or '@let' in text:
+                    return text
+            elif isinstance(item, bytes):
+                try:
+                    decoded = decompress(item)
+                    if decoded:
+                        decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
+                        if '@chat' in decoded or '@let' in decoded:
+                            return decoded
+                except Exception:
+                    pass
+                try:
+                    decoded = item.decode('utf-8')
+                    decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
+                    if '@chat' in decoded or '@let' in decoded:
+                        return decoded
+                except Exception:
+                    pass
+        return ""
 
     def _message_loop(self):
         """监听循环"""
@@ -205,53 +256,141 @@ class MessageService:
                                 )
                                 continue
 
-                            # 检查文本内容是否包含 @chat 或 @let，只有包含这些才加入队列
+                            # 提取必要参数
                             self.logger.info(f"msg_data: {msg_data}")
+                            server_id = str(msg_data[1]) if len(msg_data) > 1 else ""
+                            username = table_name.replace("Msg_", "") if table_name.startswith("Msg_") else ""
+                            sender_id = msg_data[4] if len(msg_data) > 4 else ""
+                            message_db_path = msg_data[17] if len(msg_data) > 17 else None
                             content = ""
+                            sender_wxid = ""  # 发送者 wxid
+                            sender_name = ""  # 原始发送者名称
                             has_at_keyword = False
 
-                            # 遍历 msg_data 的元素，查找包含 @chat 或 @let 的元素
+                            # 遍历 msg_data，提取内容和发送者信息
                             for i, item in enumerate(msg_data):
-                                # 处理字符串类型
                                 if isinstance(item, str):
                                     text = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', item)
+                                    # 解析发送者信息
+                                    if not sender_name and ':' in item:
+                                        first_line = item.split('\n')[0]
+                                        sender_name = first_line.rstrip(':')
+                                        if sender_name.startswith('wxid_') or sender_name.startswith('gh_'):
+                                            sender_wxid = sender_name
+                                    # 提取包含关键字的消息
                                     if '@chat' in text or '@let' in text:
                                         content = text
+                                        # 去掉发送者前缀
+                                        if sender_name:
+                                            content = content.replace(f'{sender_name}:\n', '')
+                                            content = content.replace(f'{sender_name}:', '')
                                         has_at_keyword = True
                                         self.logger.info(f"在 msg_data[{i}] 字符串中找到包含@的关键内容")
                                         break
-                                # 处理 bytes 类型（可能是 zstd 加密的）
                                 elif isinstance(item, bytes):
-                                    # 先尝试用 decompress 解密
                                     try:
-                                        decoded = decompress(item)
+                                        decoded = decompress(item) if 'decompress' in dir() else None
+                                        if not decoded:
+                                            decoded = item.decode('utf-8')
                                         if decoded:
-                                            # 解密后先替换特殊字符
                                             decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
                                             if '@chat' in decoded or '@let' in decoded:
                                                 content = decoded
+                                                # 去掉发送者前缀
+                                                if sender_name:
+                                                    content = content.replace(f'{sender_name}:\n', '')
+                                                    content = content.replace(f'{sender_name}:', '')
                                                 has_at_keyword = True
-                                                self.logger.info(f"在 msg_data[{i}] decompress解密后找到包含@的关键内容")
+                                                self.logger.info(f"在 msg_data[{i}] 解密后找到包含@的关键内容")
                                                 break
                                     except Exception:
                                         pass
-                                    # 如果 decompress 失败，尝试直接解码
-                                    try:
-                                        decoded = item.decode('utf-8')
-                                        decoded = re.sub(r'[\u2005\u2007\u2009\u3000\xa0]', ' ', decoded)
-                                        if '@chat' in decoded or '@let' in decoded:
-                                            content = decoded
-                                            has_at_keyword = True
-                                            self.logger.info(f"在 msg_data[{i}] UTF-8解码中找到包含@的关键内容")
-                                            break
-                                    except Exception:
-                                        pass
 
-                            self.logger.info(f"content: {content}")
+                            # 如果没有找到包含@的消息，尝试从 msg_data[12] 提取纯文本内容
+                            if not content and len(msg_data) > 12:
+                                item_12 = msg_data[12]
+                                if isinstance(item_12, str):
+                                    # 去掉发送者前缀获取纯文本
+                                    if sender_name:
+                                        content = item_12.replace(f'{sender_name}:\n', '')
+                                        content = content.replace(f'{sender_name}:', '')
+                                    else:
+                                        content = item_12
 
+                            self.logger.info(f"content: {content}, sender_wxid: {sender_wxid}, sender_name: {sender_name}")
+
+                            # 如果配置了回调URL，发送回调（所有消息都会回调，包括私聊和群聊）
+                            if self.callback_url:
+                                try:
+                                    room_name = ""
+                                    room_id = ""
+                                    sender_name = ""  # 发送者昵称
+                                    is_group_chat = False
+                                    
+                                    # 首先通过 get_room_by_md5 判断是否为群聊消息
+                                    if username:
+                                        room = self.db.get_room_by_md5(username)
+                                        if room:
+                                            # 群聊消息
+                                            is_group_chat = True
+                                            room_id = room.username
+                                            room_name = room.nick_name or room.remark or username
+                                            sender_name = sender_wxid  # 群聊时发送者是wxid
+                                            self.logger.info(f"查询到群: room_id={username}, room_name={room_name}")
+                                        else:
+                                            # 可能是私聊，尝试通过 get_contact_by_username 查询
+                                            self.logger.info(f"未通过md5找到群，尝试通过get_contact_by_username查询: username={username}")
+                                            contact = self.db.get_contact_by_sender_id(msg_data[4], msg_data[17])
+                                            if contact:
+                                                sender_name = contact.display_name or contact.nick_name or sender_wxid or username
+                                                self.logger.info(f"通过username查询到联系人: name={sender_name}, display_name={contact.display_name}, nick_name={contact.nick_name}")
+                                            else:
+                                                sender_name = sender_wxid or username
+                                                self.logger.info(f"未通过username找到联系人，使用默认: sender_name={sender_name}")
+                                            self.logger.info(f"私聊消息: username={username}, sender_wxid={sender_wxid}")
+
+                                    # 根据消息类型确定 contact_name
+                                    if is_group_chat:
+                                        # 群聊消息：contact_name 为 room_id
+                                        contact_name = room_id
+                                    else:
+                                        # 私聊消息：contact_name 为 sender_wxid 或 username
+                                        contact_name = sender_wxid or username
+
+                                    callback_data = {
+                                        "server_id": server_id,
+                                        "content": content,
+                                        "msg_type": msg_type,
+                                        "contact_name": contact_name,
+                                        "room_name": room_name,
+                                        "room_id": room_id,
+                                        "sender_wxid": sender_wxid,
+                                        "sender_name": sender_name,
+                                        "is_group_chat": is_group_chat
+                                    }
+                                    self.logger.info(f"回调数据: {callback_data}")
+                                    response = httpx.post(
+                                        self.callback_url,
+                                        json=callback_data,
+                                        timeout=10
+                                    )
+                                    self.logger.info(
+                                        f"消息已回调至 {self.callback_url}, 响应: {response.status_code}"
+                                    )
+                                except Exception as e:
+                                    self.logger.error(f"发送回调失败: {e}")
+
+                            # 检查是否包含 @chat/@let 关键字
                             if not has_at_keyword:
                                 self.logger.info(
                                     f"跳过不包含@chat或@let的消息: {table_name}"
+                                )
+                                continue
+
+                            # 检查是否启用自动消费（本地队列处理）
+                            if not self.auto_consume:
+                                self.logger.info(
+                                    f"自动消费已关闭，跳过消息: {table_name}"
                                 )
                                 continue
 
@@ -261,12 +400,6 @@ class MessageService:
                                     f"延迟队列已满({self.MAX_DELAY_QUEUE_SIZE})，丢弃最旧的消息"
                                 )
                                 self._delayed_messages.pop(0)
-
-                            # 提取必要参数用于延迟后重新查询
-                            server_id = str(msg_data[1]) if len(msg_data) > 1 else ""
-                            message_db_path = Path(msg_data[-1]) if msg_data else Path("")
-                            # table_name 格式为 "Msg_xxxxx"，xxxxx 即为 username
-                            username = table_name.replace("Msg_", "") if table_name.startswith("Msg_") else ""
 
                             # 加入延迟队列
                             self._delayed_messages.append(
@@ -299,6 +432,13 @@ class MessageService:
             delayed_queue_size = len(self._delayed_messages)
         return {
             "is_running": self.is_running,
+            "is_paused": self.is_paused,
+            "auto_consume": self.auto_consume,
             "queue_size": self.message_queue.qsize(),
             "delayed_queue_size": delayed_queue_size
         }
+
+    def set_auto_consume(self, enabled: bool):
+        """设置是否启用自动消费"""
+        self.auto_consume = enabled
+        self.logger.info(f"自动消费已{'启用' if enabled else '关闭'}")

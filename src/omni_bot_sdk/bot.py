@@ -22,6 +22,7 @@ from omni_bot_sdk.services.core.message_factory_service import MessageFactorySer
 from omni_bot_sdk.services.core.message_service import MessageService
 from omni_bot_sdk.services.core.mqtt_service import MQTTService
 from omni_bot_sdk.services.core.processor_service import ProcessorService
+from omni_bot_sdk.services.core.rpa_api_service import create_api_service
 from omni_bot_sdk.services.core.rpa_service import RPAService
 from omni_bot_sdk.services.core.user_service import UserService
 from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptService
@@ -142,10 +143,21 @@ class Bot:
         """
         self.logger.info("Initializing all services...")
 
+        # 获取API相关配置
+        rpa_api_config = self.config.get("rpa_api", {})
+        auto_consume = rpa_api_config.get("auto_consume", True)
+        process_delay = rpa_api_config.get("process_delay", 30)
+        callback_url = rpa_api_config.get("callback_url", "")
+
         weixin_status_service = WeixinStatusService(
             self.config, self.window_manager, self.image_processor, self.ocr_processor
         )
-        message_service = MessageService(self.message_queue, self.db)
+        message_service = MessageService(
+            self.message_queue, self.db,
+            auto_consume=auto_consume,
+            delay_seconds=process_delay,
+            callback_url=callback_url
+        )
         message_factory_service = MessageFactoryService(self.user_info, self.db)
         processor_service = ProcessorService(
             user_info=self.user_info,
@@ -188,7 +200,54 @@ class Bot:
         self.dat_decrypt_service = dat_decrypt_service
         self.processor_service = processor_service
 
+        # 初始化 RPA API 服务（传递 MQTTService 以便集成）
+        self._init_rpa_api_service(mqtt_service)
+
         return services_list
+
+    def _init_rpa_api_service(self, mqtt_service=None):
+        """
+        初始化 RPA API 服务。
+        """
+        api_config = self.config.get("rpa_api", {})
+        if not api_config.get("enabled", False):
+            self.logger.info("RPA API 服务未启用，请在 config.yaml 中配置 rpa_api.enabled=true 启用")
+            self.rpa_api_app = None
+            self.rpa_api_task_manager = None
+            return
+
+        self.logger.info("初始化 RPA API 服务...")
+
+        # 获取MQTT客户端（如果有的话）
+        mqtt_client = None
+        if mqtt_service and hasattr(mqtt_service, 'mqtt_client'):
+            mqtt_client = mqtt_service.mqtt_client
+            self.logger.info("已获取MQTT客户端，将启用MQTT队列集成")
+
+        app, task_manager = create_api_service(
+            self.rpa_task_queue,
+            api_config=api_config,
+            mqtt_client=mqtt_client
+        )
+
+        if app is None:
+            self.logger.warning("FastAPI 未安装，无法启动 RPA API 服务")
+            self.rpa_api_app = None
+            self.rpa_api_task_manager = None
+            return
+
+        self.rpa_api_app = app
+        self.rpa_api_task_manager = task_manager
+        self.rpa_api_host = api_config.get("host", "0.0.0.0")
+        self.rpa_api_port = api_config.get("port", 8001)
+        self.rpa_api_callback_url = api_config.get("callback_url", "")
+        self.rpa_api_process_delay = api_config.get("process_delay", 30)
+
+        self.logger.info(
+            f"RPA API 服务配置完成: {self.rpa_api_host}:{self.rpa_api_port}, "
+            f"延迟处理: {self.rpa_api_process_delay}秒, "
+            f"回调地址: {self.rpa_api_callback_url or '未配置'}"
+        )
 
     def add_status_callback(self, callback):
         """
@@ -264,7 +323,7 @@ class Bot:
         # 给文件助手发图片
         self.logger.info("正在发送图片到文件助手...")
         image_path = self.image_processor.generate_image(
-            text="OMNI-BOT",
+            text="客服微信：sd000000a2",
             output_filename="test_image.png",
         )
         self.rpa_task_queue.put(
@@ -284,6 +343,19 @@ class Bot:
             return
         self._notify_status(self.STATUS_STOPPING)
         self.logger.info("--- Starting Bot Teardown ---")
+
+        # 停止 RPA API 服务
+        if hasattr(self, 'rpa_api_server') and self.rpa_api_server:
+            self.logger.info("Stopping RPA API service...")
+            self.rpa_api_server.shutdown()
+            self.logger.info("RPA API service stopped.")
+
+        # 停止RPA API任务管理器的延迟处理线程
+        if hasattr(self, 'rpa_api_task_manager') and self.rpa_api_task_manager:
+            self.logger.info("Stopping RPA API task manager...")
+            self.rpa_api_task_manager.stop()
+            self.logger.info("RPA API task manager stopped.")
+
         for component in reversed(self._components):
             if hasattr(component, "stop"):
                 self.logger.info(f"Stopping service {component.__class__.__name__}...")
@@ -310,6 +382,40 @@ class Bot:
         self._notify_status(self.STATUS_STOPPED)
         self.logger.info("--- Bot Teardown Complete. ---")
 
+    def _start_rpa_api_server(self):
+        """
+        在后台线程中启动 RPA API 服务。
+        """
+        if self.rpa_api_app is None:
+            return
+
+        try:
+            import uvicorn
+        except ImportError:
+            self.logger.error("uvicorn 未安装，无法启动 RPA API 服务")
+            return
+
+        self.logger.info(f"启动 RPA API 服务: http://{self.rpa_api_host}:{self.rpa_api_port}")
+
+        # 使用 uvicorn.run 直接启动（非阻塞方式）
+        config = uvicorn.Config(
+            app=self.rpa_api_app,
+            host=self.rpa_api_host,
+            port=self.rpa_api_port,
+            log_level="info",
+            access_log=True,
+        )
+        server = uvicorn.Server(config)
+
+        # 在新线程中运行
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(server.serve())
+        finally:
+            loop.close()
+
     def start(self):
         """
         启动Bot并阻塞主线程，直到接收到终止信号。
@@ -320,6 +426,22 @@ class Bot:
             signal.signal(signal.SIGTERM, self._signal_handler)
         try:
             self.setup()
+
+            # 启动 RPA API 服务（后台线程）
+            if self.rpa_api_app:
+                api_log_msg = f"启动 RPA API 服务: http://{self.rpa_api_host}:{self.rpa_api_port}"
+                if self.rpa_api_callback_url:
+                    api_log_msg += f", 回调地址: {self.rpa_api_callback_url}"
+                self.logger.info(api_log_msg)
+
+                self._rpa_api_thread = threading.Thread(
+                    target=self._start_rpa_api_server,
+                    name="RPA-API-Thread",
+                    daemon=True
+                )
+                self._rpa_api_thread.start()
+                self.logger.info("RPA API 服务已在后台线程启动")
+
             self.mcp_app = create_app(self.db, self.user_info, self.config)
             self.mcp_app.run("streamable-http")
         except Exception as e:

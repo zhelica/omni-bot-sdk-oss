@@ -20,6 +20,7 @@ from .switch_conversation_handler import (
     SwitchConversationHandler,
     SwitchConversationAction,
 )
+from .recall_message_handler import RecallMessageHandler, RecallMessageAction
 
 try:
     from .pro import *

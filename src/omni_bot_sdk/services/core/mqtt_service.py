@@ -14,6 +14,7 @@ from omni_bot_sdk.rpa.action_handlers import (
     Invite2RoomAction,
     LeaveRoomAction,
     PatAction,
+    RecallMessageAction,
     RemoveRoomMemberAction,
     RenameNameInRoomAction,
     RenameRoomNameAction,
@@ -206,6 +207,15 @@ class MQTTService:
                 elif action_type == RPAActionType.LEAVE_ROOM.value:
                     action = LeaveRoomAction(
                         target=action_data.get("target"),
+                    )
+                    self.rpa_task_queue.put(action)
+                elif action_type == RPAActionType.RECALL_MESSAGE.value:
+                    action = RecallMessageAction(
+                        contact_name=action_data.get("contact_name"),
+                        message_text=action_data.get("message_text", ""),
+                        keyword=action_data.get("keyword", ""),
+                        recall_latest=action_data.get("recall_latest", False),
+                        similarity=action_data.get("similarity", 0.6),
                     )
                     self.rpa_task_queue.put(action)
             else:

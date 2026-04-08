@@ -8,6 +8,7 @@ from .controller import RPAController
 from .image_processor import ImageProcessor
 from .input_handler import InputHandler
 from .message_sender import MessageSender
+from .message_recall import MessageRecallController, MessageRecognizer, ContextMenuHandler
 from .ocr_processor import OCRProcessor
 from .window_manager import WindowManager
 from .ui_helper import UIInteractionHelper
@@ -15,6 +16,9 @@ from .ui_helper import UIInteractionHelper
 __all__ = [
     "WindowManager",
     "MessageSender",
+    "MessageRecallController",
+    "MessageRecognizer",
+    "ContextMenuHandler",
     "ImageProcessor",
     "OCRProcessor",
     "InputHandler",

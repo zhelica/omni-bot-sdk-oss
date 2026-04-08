@@ -5,6 +5,7 @@
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -28,6 +29,12 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO):
 
     # 配置根日志记录器
     root_logger.setLevel(log_level)
+
+    # Windows 控制台强制使用 UTF-8 编码
+    if sys.platform == "win32":
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
     # 创建彩色控制台处理器
     console_handler = colorlog.StreamHandler()

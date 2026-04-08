@@ -89,15 +89,57 @@ rpa:
   long_term_rate: 0.25
   long_term_capacity: 10
 
+# RPA API 服务配置（可选）
+# 提供 HTTP REST API 接口，允许外部系统直接调用 RPA 任务
+# 服务地址: http://<host>:<port> (默认 http://0.0.0.0:8001)
+rpa_api:
+  enabled: false  # 是否启用，默认关闭
+  host: 0.0.0.0  # 监听地址
+  port: 8001  # 监听端口
+  # 接口回调地址，当收到消息时POST到该地址（留空则不回调）
+  callback_url: ""
+  # 延迟处理秒数（默认30秒，与message_service保持一致）
+  process_delay: 30
+  # 是否启用自动消费（message_service自动处理消息）
+  auto_consume: true
+  # 是否启用API消费（通过API接口处理消息）
+  api_consume: true
+
+  # API接口说明：
+  # -----------------------------------------------------------
+  # POST /api/v1/send/text - 发送文本消息
+  #   请求: {"recipient_name": "联系人", "message": "消息内容", "at_user_name": null}
+  #   响应: {"success": true, "task_id": "xxx", "message": "消息已提交到队列"}
+  #
+  # POST /api/v1/send/file - 发送文件
+  #   请求: {"recipient_name": "联系人", "file_path": "文件路径"}
+  #
+  # POST /api/v1/recall/message - 撤回消息（三种方式）
+  #   方式1: {"contact_name": "联系人", "message_text": "消息内容", "similarity": 0.6}
+  #   方式2: {"contact_name": "联系人", "keyword": "关键词"}
+  #   方式3: {"contact_name": "联系人", "recall_latest": true}
+  # -----------------------------------------------------------
+  #
+  # 示例cURL调用:
+  #   curl -X POST "http://localhost:8001/api/v1/send/text" \
+  #     -H "Content-Type: application/json" \
+  #     -d '{"recipient_name": "张三", "message": "你好"}'
+  #
+  #   curl -X POST "http://localhost:8001/api/v1/recall/message" \
+  #     -H "Content-Type: application/json" \
+  #     -d '{"contact_name": "张三", "recall_latest": true}'
+
 wxgf:
   # 微信GF解析API地址，暂时未开放，查看roammap更新计划
   api_url: http://example.com/api/v1/decrypt
 
-s3:
-  # S3存储配置，微信登录二维码将会推送到这里，建议使用CF的R2免费存储，并设置过期时间1天
-  endpoint_url: https://example.com
-  access_key: YOUR_S3_ACCESS_KEY
-  secret_key: YOUR_S3_SECRET_KEY
-  region: apac
-  bucket: weixin-login-qr
-  public_url_prefix: https://example.com/
+http_upload:
+  #上传微信二维码图片地址
+  upload_url: "http://218.244.140.247/prod-api/common/upload/image"
+
+bot_notify:
+  #发送消息通知地址，发送二维码图片
+  send_url: "http://218.244.140.247/prod-api/api/bot/sendMessageSimple"
+  ilink_bot_id: "2fef025d2b14@im.bot"
+  secret: "1234"
+  to_user_id: "o9cq80zVhB35-jdQsb1DUkS-RWL0@im.wechat"
