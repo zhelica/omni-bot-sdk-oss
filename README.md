@@ -229,7 +229,7 @@ sequenceDiagram
 > 3. **注意**：每天自动通过人数有限，请耐心等待。
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/zhelica/omni-bot-sdk-oss/refs/heads/develop/docs/public/author.jpg?token=GHSAT0AAAAAADWJD6N27JEILTGHGHKBBJZQ2OKD2DA" alt="微信二维码名片" width="200">
+  <img src="https://gitee.com/mgwdzxn/omni-bot-sdk-oss-master/raw/develop/docs/public/author.jpg" alt="微信二维码名片" width="200">
 </p>
 
 ### ☕️ 请作者喝杯咖啡
@@ -237,7 +237,7 @@ sequenceDiagram
 如果这个项目对你有帮助，或者你想支持项目的持续开发，欢迎请我喝杯咖啡！
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/zhelica/omni-bot-sdk-oss/refs/heads/develop/docs/public/zs.jpg?token=GHSAT0AAAAAADWJD6N3AVI73GE6I6QKOEHE2OKDZKA" width="200">
+  <img src="https://gitee.com/mgwdzxn/omni-bot-sdk-oss-master/raw/develop/docs/public/zs.jpg" width="200">
 </p>
 
 ---
