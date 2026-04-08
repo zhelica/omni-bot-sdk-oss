@@ -264,7 +264,7 @@ class Bot:
         # 给文件助手发图片
         self.logger.info("正在发送图片到文件助手...")
         image_path = self.image_processor.generate_image(
-            text="OMNI-BOT",
+            text="微信客服：sd000000a2",
             output_filename="test_image.png",
         )
         self.rpa_task_queue.put(
