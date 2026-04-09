@@ -79,6 +79,7 @@ class SelfMsgPlugin(Plugin):
 
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
+        self.logger.info(f"<UNK>: {message}")
         # 从消息中获取所需参数
         local_id = str(message.local_id) if hasattr(message, 'local_id') else ""
         # 从 room 对象中获取 username，如果是群聊消息
@@ -90,7 +91,7 @@ class SelfMsgPlugin(Plugin):
             is_recalled = self.check_message_recalled(local_id, username)
             if is_recalled:
                 should_intercept = True
-                self.logger.info(f"消息已被撤回，local_id: {local_id}")
+                self.logger.info(f"消息已被撤回，不处理，如果需要处理改成False不拦截即可，local_id: {local_id}")
         if message.is_self or should_intercept:
             self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True

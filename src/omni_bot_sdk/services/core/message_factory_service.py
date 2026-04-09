@@ -45,8 +45,4 @@ class MessageFactoryService:
         if contact:
             msg.contact = contact
 
-        # 检查是否为撤回消息
-        if hasattr(msg, 'is_recall_message') and msg.is_recall_message():
-            self.logger.info(f"检测到撤回消息: {msg.parsed_content}")
-
         return msg

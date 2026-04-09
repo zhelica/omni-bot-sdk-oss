@@ -121,15 +121,13 @@ class OpenAIBotPlugin(Plugin):
             return
         # 增加判断条件，如果是私聊，直接可以响应，如果是群聊，必须引用或者@
         if message.is_chatroom:
-            self.logger.info(f"是群聊")
-
             if message.local_type == MessageType.Text:
                 if message.is_mention_chat_only:
                     pass
                 else:
                     return
             elif message.local_type == MessageType.Quote:
-                if message.quote_message and message.quote_message.is_self:
+                if message.is_mention_chat_only:
                     pass
                 else:
                     return

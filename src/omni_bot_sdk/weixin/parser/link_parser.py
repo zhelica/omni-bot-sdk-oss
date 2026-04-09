@@ -777,28 +777,61 @@ def parser_reply(xml_content):
     xml_content = robust_xml_sanitizer(xml_content).replace("&#16;", "")
     try:
         try:
-            data = xmltodict.parse(xml_content).get("msg", {}).get("appmsg", {})
+            # 1. 【关键修复】去除 BOM 头 (UTF-8 SIG)
+            #    去除开头的不可见字符
+            if isinstance(xml_content, str):
+                xml_content = xml_content.lstrip('\ufeff')  # 去除 BOM
+                xml_content = xml_content.strip()  # 去除首尾空格换行
+            # 2. 【关键修复】分离前缀和 XML
+            #    很多时候内容是 "昵称: <xml>...</xml>" 这种格式
+            #    使用正则提取纯 XML 部分
+            xml_match = re.search(r'(<\?xml.*?>.*</msg>)', xml_content, re.DOTALL | re.IGNORECASE)
+            if xml_match:
+                pure_xml = xml_match.group(1)
+            else:
+                # 如果没有找到标准 XML 头，尝试找 <msg> 标签
+                xml_match = re.search(r'(<msg>.*</msg>)', xml_content, re.DOTALL | re.IGNORECASE)
+                if xml_match:
+                    pure_xml = xml_match.group(1)
+                else:
+                    raise ValueError("无法在字符串中找到 XML 内容")
+            # 3. 打印纯 XML 用于二次确认（调试用）
+            # print(f"【调试】准备解析的纯 XML: {pure_xml[:200]}...")  # 只打印前200字符防止刷屏
+            # 4. 解析
+            data = xmltodict.parse(pure_xml).get("msg", {}).get("appmsg", {})
         except Exception as e:
-            print(e)
-            print(xml_content)
+            # print(e)
+            # print(pure_xml)
             return None
         refermsg_type = int(data.get("refermsg", {}).get("type", "1"))
+        #发送内容
         title = data.get("title", "")
+        #引用内容详细信息
         displayname = data.get("refermsg", {}).get("displayname", "")
+        #群id
+        fromusr = data.get("refermsg", {}).get("fromusr", "")
+        #引用消息用户wxid
+        chatusr = data.get("refermsg", {}).get("chatusr", "")
+        #引用消息id
         svrid = data.get("refermsg", {}).get("svrid", 0)
-        return {
-            "text": title,
-            "svrid": svrid,
-            "refermsg_type": refermsg_type,
-        }
-        # if refermsg_type == 1:
-        #     return {
-        #         # "type": msg_type,
-        #         "text": title,
-        #         'svrid': data.get('refermsg', {}).get('svrid', 0),
-        #         'refermsg_type': refermsg_type,
-        #         "refer_text": f"{refermsg_displayname}：{refermsg_content}",
-        #     }
+        #引用消息内容
+        content = data.get("refermsg", {}).get("content", "")
+
+        # return {
+        #     "text": title,
+        #     "svrid": svrid,
+        #     "refermsg_type": refermsg_type,
+        # }
+        if refermsg_type == 1:
+            return {
+                "type": refermsg_type,
+                "title": title,
+                'displayname': displayname,
+                'fromusr': fromusr,
+                'chatusr':chatusr,
+                'svrid':svrid,
+                "content": content
+            }
         # elif refermsg_type == 3:
         #     return {
         #         # "type": msg_type,
