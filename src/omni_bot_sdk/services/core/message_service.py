@@ -201,11 +201,11 @@ class MessageService:
                                 self.logger.info(f"发现新消息类型: {msg_type}")
 
                             # 只处理 msg_type = 1 的消息，其他类型不加入延迟队列
-                            if msg_type != 1:
-                                self.logger.info(
-                                    f"跳过非文本消息: {table_name}, 类型: {msg_type}"
-                                )
-                                continue
+                            # if msg_type != 1:
+                            #     self.logger.info(
+                            #         f"跳过非文本消息: {table_name}, 类型: {msg_type}"
+                            #     )
+                            #     continue
 
                             # 提取必要参数
                             self.logger.info(f"msg_data: {msg_data}")
@@ -332,11 +332,11 @@ class MessageService:
                                     self.logger.error(f"发送回调失败: {e}")
 
                             # 检查是否包含 @chat/@let 关键字
-                            if not has_at_keyword:
-                                self.logger.info(
-                                    f"跳过不包含@chat或@let的消息: {table_name}"
-                                )
-                                continue
+                            # if not has_at_keyword:
+                            #     self.logger.info(
+                            #         f"跳过不包含@chat或@let的消息: {table_name}"
+                            #     )
+                            #     continue
 
                             # 检查是否启用自动消费（本地队列处理）
                             if not self.auto_consume:
