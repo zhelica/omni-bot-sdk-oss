@@ -1,5 +1,5 @@
-import requests
 from typing import TYPE_CHECKING
+from pathlib import Path
 from pydantic import BaseModel
 
 from omni_bot_sdk.plugins.interface import Plugin, PluginExcuteContext
@@ -36,64 +36,58 @@ class SelfMsgPlugin(Plugin):
 
     def __init__(self, bot: "Bot" = None):
         super().__init__(bot)
-        # 动态优先级支持
         self.priority = getattr(self.plugin_config, "priority", self.__class__.priority)
 
     def get_priority(self) -> int:
         return self.priority
 
-    def check_message_recalled(self, local_id: str, username: str) -> bool:
+    def check_message_recalled(
+        self, server_id: int, message_db_path: Path, username: str
+    ) -> bool:
         """
-        通过本地接口查询消息状态，判断消息是否被撤回
+        通过内置 get_message_by_server_id 方法查询消息，判断消息是否被撤回
 
         Args:
-            local_id: 消息的 local_id
+            server_id: 消息的服务器ID
+            message_db_path: 消息所在数据库的路径
             username: 会话用户名 (talker)
 
         Returns:
             bool: 如果消息被撤回返回 True，否则返回 False
         """
         try:
-            url = f"http://127.0.0.1:5031/api/v1/messages?talker={username}&limit=20"
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("success"):
-                    messages = data.get("messages", [])
-                    for msg in messages:
-                        msg_local_id = int(msg.get("localId", 0))
-                        target_id = int(local_id)
-                        # 对比 local_id
-                        if msg_local_id == target_id:
-                            local_type = msg.get("localType", 0)
-                            content = msg.get("content", "")
-                            # localType = 10000 表示撤回消息，或 content 包含"撤回"
-                            if local_type == 10000 or "撤回" in content:
-                                self.logger.info(f"检测到消息被撤回: local_id={local_id}, localType={local_type}, content={content}")
-                                return True
-                    return False
-            else:
+            message_data = self.bot.db.get_message_by_server_id(
+                str(server_id), message_db_path, username
+            )
+            if message_data is None:
+                self.logger.info(f"未找到消息: server_id={server_id}")
                 return False
+
+            local_type = message_data[2] if len(message_data) > 2 else 0
+
+            if local_type == 10000:
+                self.logger.info(f"检测到消息被撤回: server_id={server_id}, local_type={local_type}")
+                return True
+            return False
         except Exception as e:
+            self.logger.error(f"查询消息撤回状态失败: {e}")
             return False
 
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
-        self.logger.info(f"<UNK>: {message}")
-        # 从消息中获取所需参数
-        local_id = str(message.local_id) if hasattr(message, 'local_id') else ""
-        # 从 room 对象中获取 username，如果是群聊消息
         username = message.room.username if message.room else None
-
-        # 通过本地接口查询消息状态，判断是否被撤回
-        should_intercept = False
-        if username and local_id:
-            is_recalled = self.check_message_recalled(local_id, username)
+        if username and message.server_id and message.message_db_path:
+            is_recalled = self.check_message_recalled(
+                message.server_id,
+                Path(message.message_db_path),
+                username
+            )
             if is_recalled:
-                should_intercept = True
-                self.logger.info(f"消息已被撤回，不处理，如果需要处理改成False不拦截即可，local_id: {local_id}")
-        if message.is_self or should_intercept:
-            self.logger.info("检测到是自己的消息或撤回消息，直接拦截，不再让后续的处理")
+                self.logger.info("检测到是撤回的消息，直接拦截，不再让后续的处理")
+                plusginExcuteContext.should_stop = True
+
+        if message.is_self:
+            self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True
         else:
             self.logger.info("消息通过校验")

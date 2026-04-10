@@ -143,15 +143,11 @@ class Message:
                 self.local_type == MessageType.System
                 or self.local_type == MessageType.Pat
             ):
-                # 检查是否为撤回消息，撤回消息不应该被识别为自己的消息
-                if self.is_recall_message():
-                    print(f"检测到撤回消息，不识别为自己的消息: {self.type_name}")
-                    return False
                 # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
-                print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
+                #print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
                 return True
             else:
-                print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
+                #print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
                 return False
 
     @property
