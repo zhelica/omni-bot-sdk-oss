@@ -36,17 +36,13 @@ class MessageFactoryService:
             return None
         contact = self.db.get_contact_by_sender_id(msg_with_db[4], msg_with_db[17])
         if not contact:
-            self.logger.warn(f"未找到联系人: {msg_with_db[4]}")
-            # TODO 有些消息是允许没有发送人的？这个时候怎么搞？是不是把他当作系统呢？
+            self.logger.warn(f"未找到联系人: {msg_with_db[4]}，使用默认值")
+            contact = {}
         msg = FACTORY_REGISTRY[type_].create(
             msg_with_db, self.user_info, self.db, contact, room
         )
         msg.room = room
         if contact:
             msg.contact = contact
-
-        # 检查是否为撤回消息
-        if hasattr(msg, 'is_recall_message') and msg.is_recall_message():
-            self.logger.info(f"检测到撤回消息: {msg.parsed_content}")
 
         return msg

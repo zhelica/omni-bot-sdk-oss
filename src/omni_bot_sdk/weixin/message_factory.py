@@ -216,7 +216,7 @@ class ImageMessageFactory(MessageFactory):
             user_info=user_info,
         )
 
-        sender_wxid = msg.room.username if msg.is_chatroom else msg.contact.username
+        sender_wxid = msg.room.username if msg.is_chatroom else (msg.contact.username if msg.contact else "")
 
         path = db.get_image(
             xml_content=msg.parsed_content,
@@ -679,7 +679,7 @@ class MergedMessageFactory(MessageFactory):
         )
 
         info = parser_merged_messages(
-            user_info, msg.parsed_content, "", msg.contact.username, message[5]
+            user_info, msg.parsed_content, "", contact.get("username", ""), message[5]
         )
 
         dir0 = ""
@@ -698,7 +698,7 @@ class MergedMessageFactory(MessageFactory):
                 Path(user_info.data_dir)
                 / "msg"
                 / "attach"
-                / hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest()
+                / hashlib.md5(contact.get("username", "").encode("utf-8")).hexdigest()
                 / month
                 / "Rec"
             )
@@ -714,7 +714,7 @@ class MergedMessageFactory(MessageFactory):
 
         def parser_merged(merged_messages, level_prefix):
             attach_base = Path("msg/attach")
-            wxid_md5 = hashlib.md5(msg.contact.username.encode("utf-8")).hexdigest()
+            wxid_md5 = hashlib.md5(contact.get("username", "").encode("utf-8")).hexdigest()
 
             for index, inner_msg in enumerate(merged_messages):
                 inner_msg.room = msg.room
@@ -747,10 +747,10 @@ class MergedMessageFactory(MessageFactory):
                             inner_msg,
                             "",
                             False,
-                            msg.contact.username,
+                            contact.get("username", ""),
                         )
                         thumb_path = db.get_image(
-                            "", inner_msg.md5, inner_msg, "", True, msg.contact.username
+                            "", inner_msg.md5, inner_msg, "", True, contact.get("username", "")
                         )
                         inner_msg.path = str(path) if path else ""
                         inner_msg.thumb_path = str(thumb_path) if thumb_path else ""
@@ -942,33 +942,33 @@ class QuoteMessageFactory(MessageFactory):
             room=room,
             content="",
             quote_message=None,
-            user_info=user_info,
+            user_info=user_info
         )
         info = parser_reply(msg.parsed_content)
-
-        quote_svrid = info.get("svrid", "") if info is not None else ""
-        chat_user = room.username if room else contact.username
-        quote_message_data = db.get_message_by_server_id(
-            quote_svrid, msg.message_db_path, chat_user
-        )
-
-        if quote_message_data:
-            quote_sender_id = quote_message_data[4]
-            quote_contact = db.get_contact_by_sender_id(
-                quote_sender_id, msg.message_db_path
-            )
-            quote_factory = FACTORY_REGISTRY.get(
-                quote_message_data[2], UnknownMessageFactory()
-            )
-            msg.quote_message = quote_factory.create(
-                quote_message_data, user_info, db, quote_contact, room
-            )
-        else:
-            # [REFACTORED] Changed print to a comment, suggesting logger usage
-            # logger.warning(f"Quoted message not found. svrid: {quote_svrid}, xml: {msg.parsed_content}")
-            msg.quote_message = None
-
-        msg.content = (info or {}).get("text", "")
+        # quote_svrid = info.get("svrid", "") if info is not None else ""
+        # chat_user = room.username if room else contact.username
+        # quote_message_data = db.get_message_by_server_id(
+        #     quote_svrid, msg.message_db_path, chat_user
+        # )
+        #
+        # if quote_message_data:
+        #     quote_sender_id = quote_message_data[4]
+        #     quote_contact = db.get_contact_by_sender_id(
+        #         quote_sender_id, msg.message_db_path
+        #     )
+        #     quote_factory = FACTORY_REGISTRY.get(
+        #         quote_message_data[2], UnknownMessageFactory()
+        #     )
+        #     msg.quote_message = quote_factory.create(
+        #         quote_message_data, user_info, db, quote_contact, room
+        #     )
+        # else:
+        #     # [REFACTORED] Changed print to a comment, suggesting logger usage
+        #     # logger.warning(f"Quoted message not found. svrid: {quote_svrid}, xml: {msg.parsed_content}")
+        #     msg.quote_message = info
+        #     # msg.quote_message = None
+        msg.quote_message = info
+        msg.content = (info or {}).get("title", "")
         return msg
 
 

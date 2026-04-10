@@ -99,47 +99,6 @@ class MessageService:
         self.is_paused = False
         self.logger.info("消息监听器已恢复。")
 
-    def _is_recall_message(self, message: Tuple[str, tuple]) -> bool:
-        """
-        检查消息是否为撤回消息。
-
-        Args:
-            message: 消息元组 (table_name, msg_data)
-
-        Returns:
-            bool: 如果是撤回消息返回True，否则返回False
-        """
-        try:
-            table_name, msg_data = message
-            if len(msg_data) < 6:
-                return False
-
-            # 消息类型字段在 msg_data[2]
-            msg_type = msg_data[2] if len(msg_data) > 2 else None
-
-            # 撤回消息的特征：
-            # 1. 消息类型为文本(1)或系统消息(10000)，但内容为特定撤回关键词
-            # 2. 消息内容包含撤回相关文字
-            content = msg_data[5] if len(msg_data) > 5 else ""  # 消息内容字段
-            if content:
-                # 检查撤回关键词
-                recall_keywords = ["撤回了一条消息", "recalled a message", "撤回了消息"]
-                content_str = str(content)
-                for keyword in recall_keywords:
-                    if keyword in content_str:
-                        return True
-
-            # 也可能是特定消息类型
-            # 微信撤回消息的类型通常是文本或系统消息
-            if msg_type in (1, 10000) and content:
-                content_str = str(content).lower()
-                if "撤回" in content_str or "recall" in content_str:
-                    return True
-
-            return False
-        except Exception as e:
-            self.logger.error(f"检查撤回消息时出错: {e}")
-            return False
     def _process_delayed_messages(self):
         """处理延迟队列中已到期的消息"""
         current_time = time.time()

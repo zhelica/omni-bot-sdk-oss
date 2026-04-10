@@ -114,7 +114,6 @@ class Message:
     room: Optional[Any]  # 群聊对象
     contact: Optional[Any]  # 联系人对象
     user_info: UserInfo  # 用户信息
-
     @property
     def create_datetime(self) -> datetime:
         """获取消息创建时间"""
@@ -144,15 +143,11 @@ class Message:
                 self.local_type == MessageType.System
                 or self.local_type == MessageType.Pat
             ):
-                # 检查是否为撤回消息，撤回消息不应该被识别为自己的消息
-                if self.is_recall_message():
-                    print(f"检测到撤回消息，不识别为自己的消息: {self.type_name}")
-                    return False
                 # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
-                print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
+                #print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
                 return True
             else:
-                print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
+                #print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
                 return False
 
     @property
@@ -184,10 +179,8 @@ class Message:
             # 检查是否包含 @chat（作为独立词，避免匹配到类似 "mychat"）
             has_chat = bool(re.search(r'@chat\b', content, re.IGNORECASE))
             has_let = bool(re.search(r'@let\b', content, re.IGNORECASE))
-            # 检查是否包含 @chatroom（同样作为独立词）
-            has_chatroom = bool(re.search(r'@chatroom\b', content, re.IGNORECASE))
 
-            return (has_chat or has_let) and not has_chatroom
+            return has_chat or has_let
         except:
             # 出错时默认返回 False，保持健壮性
             return False
@@ -288,36 +281,6 @@ class Message:
     def is_downloaded(self) -> bool:
         """检查消息是否已下载"""
         return self.download_status is not None and self.download_status > 0
-
-    def is_recall_message(self) -> bool:
-        """检查是否为撤回消息"""
-        if self.local_type != MessageType.System:
-            return False
-        
-        # 检查消息内容是否包含撤回相关的关键词
-        content = self.parsed_content
-        if isinstance(content, str):
-            recall_keywords = [
-                "撤回了一条消息",
-                "recall",
-                "撤回",
-                "revoke",
-                "已撤回",
-                "消息已撤回",
-                "recalled",
-                "withdrawn",
-                "撤回消息"
-            ]
-            return any(keyword in content for keyword in recall_keywords)
-        
-        # 检查消息来源字段
-        if hasattr(self, 'source') and self.source:
-            source_str = str(self.source)
-            if any(keyword in source_str.lower() for keyword in ['recall', 'withdraw', '撤回']):
-                return True
-        
-        return False
-
 
 @dataclass(slots=True)
 class FakeMessage:
