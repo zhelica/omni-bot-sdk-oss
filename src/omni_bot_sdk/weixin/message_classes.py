@@ -216,6 +216,7 @@ class Message:
                 and not self.is_self
                 and self.local_type != MessageType.Pat
                 and self.local_type != MessageType.System
+                and self.contact is not None  # 添加此检查
             ):
                 # TODO 群聊文字消息格式：<wxid>:<content>, 开头必须是发送人的id+'：'+换行
                 if message_content and message_content.startswith(
