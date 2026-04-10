@@ -76,6 +76,12 @@ class SelfMsgPlugin(Plugin):
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
         username = message.room.username if message.room else None
+
+        if message.is_self:
+            self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
+            plusginExcuteContext.should_stop = True
+            return
+
         if username and message.server_id and message.message_db_path:
             is_recalled = self.check_message_recalled(
                 message.server_id,
@@ -85,13 +91,10 @@ class SelfMsgPlugin(Plugin):
             if is_recalled:
                 self.logger.info("检测到是撤回的消息，直接拦截，不再让后续的处理")
                 plusginExcuteContext.should_stop = True
+                return
 
-        if message.is_self:
-            self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
-            plusginExcuteContext.should_stop = True
-        else:
-            self.logger.info("消息通过校验")
-            plusginExcuteContext.should_stop = False
+        self.logger.info("消息通过校验")
+        plusginExcuteContext.should_stop = False
 
     def get_plugin_name(self) -> str:
         return self.name
