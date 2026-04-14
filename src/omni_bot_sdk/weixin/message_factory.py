@@ -945,30 +945,24 @@ class QuoteMessageFactory(MessageFactory):
             user_info=user_info
         )
         info = parser_reply(msg.parsed_content)
-        # quote_svrid = info.get("svrid", "") if info is not None else ""
-        # chat_user = room.username if room else contact.username
-        # quote_message_data = db.get_message_by_server_id(
-        #     quote_svrid, msg.message_db_path, chat_user
-        # )
-        #
-        # if quote_message_data:
-        #     quote_sender_id = quote_message_data[4]
-        #     quote_contact = db.get_contact_by_sender_id(
-        #         quote_sender_id, msg.message_db_path
-        #     )
-        #     quote_factory = FACTORY_REGISTRY.get(
-        #         quote_message_data[2], UnknownMessageFactory()
-        #     )
-        #     msg.quote_message = quote_factory.create(
-        #         quote_message_data, user_info, db, quote_contact, room
-        #     )
-        # else:
-        #     # [REFACTORED] Changed print to a comment, suggesting logger usage
-        #     # logger.warning(f"Quoted message not found. svrid: {quote_svrid}, xml: {msg.parsed_content}")
-        #     msg.quote_message = info
-        #     # msg.quote_message = None
-        msg.quote_message = info
-        msg.content = (info or {}).get("title", "")
+        quote_sender_id = info.get("quote_sender_id", "") if info is not None else ""
+        chatusr = info.get("chatusr", "") if info is not None else ""
+        quote_svrid = info.get("svrid", "") if info is not None else ""
+        chat_user = room.username if room else contact.username
+        quote_message_data = db.get_message_by_server_id(
+            quote_svrid, msg.message_db_path, chat_user
+        )
+        if quote_message_data:
+            from types import SimpleNamespace
+            quote_contact = SimpleNamespace(username=chatusr, sender_id=quote_sender_id, display_name="")
+            quote_factory = FACTORY_REGISTRY.get(
+                quote_message_data[2], UnknownMessageFactory()
+            )
+            msg.quote_message = quote_factory.create(
+                quote_message_data, user_info, db, quote_contact, room
+            )
+        else:
+            msg.quote_message = info
         return msg
 
 

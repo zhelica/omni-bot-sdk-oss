@@ -127,7 +127,7 @@ class OpenAIBotPlugin(Plugin):
                 else:
                     return
             elif message.local_type == MessageType.Quote:
-                if message.is_mention_chat_only:
+                if message.quote_message and message.quote_message.is_self:
                     pass
                 else:
                     return

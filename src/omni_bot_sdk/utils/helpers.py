@@ -90,20 +90,20 @@ def get_weixin_path_from_registry():
                 executable_path = Path(path) / "Weixin.exe"
                 if executable_path.exists():
                     return str(executable_path)
-                print("在安装目录下没有找到微信.lnk")
+                logger.warning("在安装目录下没有找到微信.lnk")
                 return None  # 未找到可执行文件
 
             else:
-                print("注册表中的路径无效或不是目录。")
+                logger.warning("注册表中的路径无效或不是目录。")
                 return None
 
         except FileNotFoundError:
             winreg.CloseKey(key)
-            print("注册表项中没有找到 'InstallPath'。")
+            logger.warning("注册表项中没有找到 'InstallPath'。")
             return None
 
     except FileNotFoundError:
-        print("未找到微信的注册表项。")
+        logger.warning("未找到微信的注册表项。")
         return None
 
 
@@ -116,10 +116,10 @@ def launch_wechat_via_shell(program_path: str):
         program_path: 要启动的程序的完整路径。
     """
     if not Path(program_path).exists():
-        print(f"错误: 找不到程序 '{program_path}'。")
+        logger.error(f"错误: 找不到程序 '{program_path}'。")
         return
 
-    print(f"[*] 正在通过 COM ShellExecute 模拟用户启动: {program_path}")
+    logger.info(f"[*] 正在通过 COM ShellExecute 模拟用户启动: {program_path}")
 
     try:
         # 创建 Shell.Application 对象
@@ -135,14 +135,11 @@ def launch_wechat_via_shell(program_path: str):
         # 5. Show: 窗口显示方式 (1 = 正常显示)
         shell.ShellExecute(program_path, "", "", "open", 1)
 
-        print(f"[*] 启动请求已发送给 Windows Shell。")
-        print("[*] 程序将由系统独立启动，Python 脚本现在可以安全退出了。")
+        logger.info(f"[*] 启动请求已发送给 Windows Shell。")
+        logger.info("[*] 程序将由系统独立启动，Python 脚本现在可以安全退出了。")
 
     except Exception as e:
-        import traceback
-
-        print(f"[*] 通过 ShellExecute 启动时发生错误: {e}")
-        traceback.print_exc()
+        logger.error(f"[*] 通过 ShellExecute 启动时发生错误: {e}", exc_info=True)
 
 
 def send_dingtalk_notification(
@@ -169,11 +166,11 @@ def send_dingtalk_notification(
             secret = bot_config.get("secret")
             to_user_id = bot_config.get("to_user_id")
     except Exception as e:
-        print(f"读取配置文件失败: {str(e)}")
+        logger.error(f"读取配置文件失败: {str(e)}")
         return False
 
     if not all([send_url, ilink_bot_id, secret, to_user_id]):
-        print("bot_notify配置不完整")
+        logger.warning("bot_notify配置不完整")
         return False
 
     # 构建消息体
@@ -196,11 +193,11 @@ def send_dingtalk_notification(
         if response.status_code == 200:
             return True
         else:
-            print(f"消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
+            logger.error(f"消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
             return False
 
     except Exception as e:
-        print(f"消息发送异常: {str(e)}")
+        logger.error(f"消息发送异常: {str(e)}")
         return False
 
 
@@ -229,11 +226,11 @@ def send_dingtalk_markdown_notification(
             secret = bot_config.get("secret")
             to_user_id = bot_config.get("to_user_id")
     except Exception as e:
-        print(f"读取配置文件失败: {str(e)}")
+        logger.error(f"读取配置文件失败: {str(e)}")
         return False
 
     if not all([send_url, ilink_bot_id, secret, to_user_id]):
-        print("bot_notify配置不完整")
+        logger.warning("bot_notify配置不完整")
         return False
 
     # 构建消息体，content为图片地址
@@ -256,11 +253,11 @@ def send_dingtalk_markdown_notification(
         if response.status_code == 200:
             return True
         else:
-            print(f"图片消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
+            logger.error(f"图片消息发送失败，状态码: {response.status_code}, 响应: {response.text}")
             return False
 
     except Exception as e:
-        print(f"图片消息发送异常: {str(e)}")
+        logger.error(f"图片消息发送异常: {str(e)}")
         return False
 
 
@@ -300,7 +297,7 @@ def save_clipboard_image_to_temp() -> Optional[str]:
         return None
 
     except Exception as e:
-        print(f"保存剪贴板图片时出错: {str(e)}")
+        logger.error(f"保存剪贴板图片时出错: {str(e)}")
         return None
 
 
@@ -320,7 +317,7 @@ def read_temp_image(image_path: str) -> bool:
         import win32clipboard
 
         if not Path(image_path).exists():
-            print(f"图片文件不存在: {image_path}")
+            logger.error(f"图片文件不存在: {image_path}")
             return False
 
         # 打开图片
@@ -341,7 +338,7 @@ def read_temp_image(image_path: str) -> bool:
         return True
 
     except Exception as e:
-        print(f"读取图片到剪贴板时出错: {str(e)}")
+        logger.error(f"读取图片到剪贴板时出错: {str(e)}")
         return False
 
 
@@ -585,8 +582,8 @@ def upload_image_to_http_server(
             result = response.json()
             return result.get("url") or result.get("data", {}).get("url")
         else:
-            print(f"HTTP上传失败，状态码: {response.status_code}, 响应: {response.text}")
+            logger.error(f"HTTP上传失败，状态码: {response.status_code}, 响应: {response.text}")
             return None
     except Exception as e:
-        print(f"HTTP上传异常: {str(e)}")
+        logger.error(f"HTTP上传异常: {str(e)}")
         return None
