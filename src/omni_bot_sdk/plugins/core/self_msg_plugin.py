@@ -77,10 +77,10 @@ class SelfMsgPlugin(Plugin):
         message = plusginExcuteContext.get_message()
         username = message.room.username if message.room else None
 
-        if message.is_self:
-            self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
-            plusginExcuteContext.should_stop = True
-            return
+        # if message.is_self:
+        #     self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
+        #     plusginExcuteContext.should_stop = True
+        #     return
 
         if username and message.server_id and message.message_db_path:
             is_recalled = self.check_message_recalled(
