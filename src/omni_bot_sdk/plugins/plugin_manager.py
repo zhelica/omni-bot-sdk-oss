@@ -1,7 +1,10 @@
 import importlib.metadata
 import logging
+import sys
+from importlib import import_module
+from pathlib import Path
 from queue import Queue
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Dict, List, Tuple
 
 # TYPE_CHECKING块仅用于类型提示，避免运行时循环依赖。
 if TYPE_CHECKING:
@@ -16,6 +19,72 @@ from omni_bot_sdk.plugins.core.plugin_interface import (
 
 # 插件入口点组名，所有插件需注册到该组。
 PLUGIN_ENTRY_POINT_GROUP = "omni_bot.plugins"
+
+
+def _discover_plugins_from_file() -> List[Tuple[str, str]]:
+    """
+    Fallback: 直接从打包目录下的 omni_bot_sdk.egg-info/entry_points.txt 读取入口点。
+    解决 PyInstaller 打包后 importlib.metadata 无法找到插件的问题。
+    """
+    candidates = []
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).resolve().parent
+
+    egg_info_dir = base / "omni_bot_sdk.egg-info"
+    entry_file = egg_info_dir / "entry_points.txt"
+
+    logger = logging.getLogger(__name__)
+    if not entry_file.exists():
+        logger.info(f"[PluginDiscovery] entry_points.txt not found at {entry_file}, skipping fallback.")
+        return []
+
+    try:
+        import configparser
+    except ImportError:
+        return []
+
+    cfg = configparser.ConfigParser()
+    try:
+        with open(entry_file, encoding="utf-8") as f:
+            cfg.read_file(f)
+    except Exception as e:
+        logger.error(f"[PluginDiscovery] 读取 entry_points.txt 失败: {e}")
+        return []
+
+    logger.info(f"[PluginDiscovery] cfg.sections()={cfg.sections()}")
+    if PLUGIN_ENTRY_POINT_GROUP not in cfg:
+        return []
+
+    if PLUGIN_ENTRY_POINT_GROUP not in cfg:
+        return []
+
+    for name, value in cfg.items(PLUGIN_ENTRY_POINT_GROUP):
+        value = value.strip()
+        if not value or value.startswith("#"):
+            continue
+        if ":" not in value:
+            continue
+        candidates.append((name, value))
+    logger.info(f"[PluginDiscovery] 从 egg-info 文件加载了 {len(candidates)} 个入口点。")
+    return candidates
+
+
+def _load_entry_point(value: str):
+    """
+    根据 entry_point 字符串 (如 "omni_bot_sdk.plugins.core.xxx:ClassName")
+    动态加载并返回插件类。
+    """
+    if ":" not in value:
+        return None
+    module_path, class_name = value.rsplit(":", 1)
+    try:
+        module = import_module(module_path)
+        cls = getattr(module, class_name.strip(), None)
+        return cls
+    except Exception:
+        return None
 
 
 class PluginManager:
@@ -50,20 +119,37 @@ class PluginManager:
 
         plugins_config = self.bot.config.get("plugins", {})
 
+        # 优先尝试标准 entry_points 方式（开发环境 / pip install -e）
+        discovered = []
         try:
-            discovered_plugins = importlib.metadata.entry_points(
-                group=PLUGIN_ENTRY_POINT_GROUP
-            )
-        except AttributeError:
-            discovered_plugins = importlib.metadata.entry_points().get(
-                PLUGIN_ENTRY_POINT_GROUP, []
-            )
+            eps = importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
+            try:
+                discovered = list(eps)
+            except TypeError:
+                discovered = eps
+        except Exception:
+            discovered = []
 
-        if not discovered_plugins:
+        # fallback: 打包后从 omni_bot_sdk.egg-info/entry_points.txt 读取
+        if not discovered:
+            self.logger.info("标准 entry_points 未发现插件，尝试从 egg-info 文件读取...")
+            file_eps = _discover_plugins_from_file()
+            discovered = file_eps  # [(name, value), ...]
+
+        if not discovered:
             self.logger.warning("未发现任何已安装的插件。请确保插件包已正确安装。")
 
-        for entry_point in discovered_plugins:
-            plugin_id = entry_point.name
+        for entry_point in discovered:
+            # 统一处理两种格式：标准 entry_points 对象 vs (name, value) 元组
+            if isinstance(entry_point, tuple):
+                plugin_id = entry_point[0]
+                ep_value = entry_point[1]
+                ep_name = plugin_id
+            else:
+                plugin_id = entry_point.name
+                ep_value = entry_point.value
+                ep_name = plugin_id
+
             try:
                 plugin_conf = plugins_config.get(plugin_id, {})
                 if (
@@ -74,12 +160,16 @@ class PluginManager:
                     continue
 
                 self.logger.debug(
-                    f"正在加载插件 '{plugin_id}' from '{entry_point.value}'..."
+                    f"正在加载插件 '{plugin_id}' from '{ep_value}'..."
                 )
 
-                plugin_class = entry_point.load()
+                # 加载插件类
+                if isinstance(entry_point, tuple):
+                    plugin_class = _load_entry_point(ep_value)
+                else:
+                    plugin_class = entry_point.load()
 
-                if not (
+                if plugin_class is None or not (
                     isinstance(plugin_class, type) and issubclass(plugin_class, Plugin)
                 ):
                     self.logger.warning(

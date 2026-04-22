@@ -1220,7 +1220,7 @@ class WindowManager:
             ]
         return None
 
-    _SEARCH_CATEGORY_KEYS = ("联系人", "群聊", "功能")
+    _SEARCH_CATEGORY_KEYS = ("联系人", "群聊", "功能","最常使用")
 
     @staticmethod
     def _normalize_ocr_category_text(lab: str) -> str:
@@ -1239,16 +1239,28 @@ class WindowManager:
                 picked.append(r)
         return picked
 
-    def _pick_search_result_via_ocr(self, target: str) -> bool:
+    def _fuzzy_match(self, target: str, candidate: str) -> bool:
+        """模糊匹配两个字符串，忽略空白字符。"""
+        import re
+        def normalize(s):
+            return re.sub(r'\s+', '', s).lower()
+        return normalize(target) == normalize(candidate)
+
+    def _pick_search_result_via_ocr(self, target: str) -> Tuple[bool, str]:
         """
         搜索框已输入关键词后：截图搜索浮层，OCR 找「联系人/群聊/功能」，
         取最靠上的一条分类标签，在其下方点击首条结果行（避免回车点到「搜索网络」等）。
+        Returns:
+            Tuple[bool, str]: (是否成功, 实际点击的联系人的OCR标签)
         """
         row_offset = int(self.rpa_config.get("search_category_to_row_offset", 40))
-        time.sleep(max(self.action_delay, 0.4))
+        # 搜索结果加载需要时间，等待足够长以减少后续重试次数
+        time.sleep(max(self.action_delay, 0.8))
         self.logger.info("在搜索结果中为「%s」选择分类下首条结果", target)
 
-        # 截图区域：优先使用独立搜索窗口；否则在主窗口左上区域（侧边栏+会话列表+搜索框）
+        selected_contact_label = ""  # 记录实际点击的联系人的OCR标签
+
+        # 截图区域：优先使用独立搜索窗口；否则在主窗口左上区域（侧边栏+会话列表+搜索浮层）
         search_window = self.wait_for_window(
             WindowTypeEnum.SearchContactWindow, timeout=4
         )
@@ -1264,26 +1276,33 @@ class WindowManager:
                 region[0], region[1], region[2], region[3],
             )
         else:
-            # 主窗口左上区域，覆盖侧边栏+会话列表+搜索框浮层
-            # 使用实际测量的 SIDE_BAR_WIDTH + SESSION_LIST_WIDTH，而不是固定比例
-            search_region_width = self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH
-            search_region_height = self.TITLE_BAR_HEIGHT * 5 if self.TITLE_BAR_HEIGHT > 0 else int(self.size_config.height * 0.2)
-            # 如果实际测量值无效，使用比例作为后备
+            # 搜索浮层固定在左上角区域，宽度延伸到消息区左侧，固定高度覆盖搜索浮层
+            # 使用 MSG_TOP_X（消息区左边界）作为搜索浮层右侧边界，而不是 SIDE_BAR + SESSION_LIST
+            search_region_width = self.MSG_TOP_X
+            search_region_height = int(self.size_config.height * 0.45)
+            # 如果测量值无效，使用比例作为后备
             if search_region_width <= 0:
-                search_region_width = int(self.size_config.width * 0.42)
+                search_region_width = int(self.size_config.width * 0.45)
             if search_region_height <= 0:
-                search_region_height = int(self.size_config.height * 0.55)
+                search_region_height = int(self.size_config.height * 0.45)
             region = [0, 0, search_region_width, search_region_height]
             self.logger.info(
-                "使用实际测量区域截图 OCR: SIDE_BAR=%s SESSION_LIST=%s w=%s h=%s",
-                self.SIDE_BAR_WIDTH, self.SESSION_LIST_WIDTH,
-                search_region_width, search_region_height,
+                "使用实际测量区域截图 OCR: MSG_TOP_X=%s w=%s h=%s",
+                self.MSG_TOP_X, search_region_width, search_region_height,
             )
 
         screenshot = self.image_processor.take_screenshot(region=region)
         if not screenshot:
             self.logger.error("搜索区域截图失败")
-            return False
+            return False, ""
+
+        # 保存截图供调试
+        try:
+            import os
+            os.makedirs("runtime_images", exist_ok=True)
+            screenshot.save("runtime_images/search_contact_result.png")
+        except Exception:
+            pass
 
         result = self.ocr_processor.process_image(image=screenshot)
         self.logger.info("OCR 返回 %d 个识别结果", len(result))
@@ -1304,17 +1323,147 @@ class WindowManager:
 
         labels = self._collect_ocr_category_labels(result)
         self.logger.info("OCR 匹配到分类标签 %d 个: %s", len(labels), [l.get("label") for l in labels])
-        if not labels:
-            return False
 
-        labels.sort(key=lambda x: x.get("pixel_bbox", [0, 9999])[1])
+        # 计算截图区域的绝对坐标偏移量（供后续点击坐标转换使用）
+        ox, oy = region[0], region[1]
+
+        # 计算最靠上分类标签的底部，只有位于此高度以下的结果才被视为有效联系人
+        # 注意：此处 labels 已排除了"搜索网络"/"Q"等关键词；但"搜索网络结果"作为非标准分类
+        # 可能被错误地包含在 labels 中导致 topmost_category_bottom 偏小，所以额外取所有已知
+        # 分类键的 top 之最小值兜底
+        if labels:
+            labels.sort(key=lambda x: x.get("pixel_bbox", [0, 9999])[1])
+            topmost_category_bottom = labels[0].get("pixel_bbox", [0, 0, 0, 0])[3]
+        else:
+            topmost_category_bottom = 0
+        # 已知分类标签的 top 也应参与边界计算（兜底排除"搜索网络结果"等顶部条目）
+        all_category_tops = [r.get("pixel_bbox", [0, 0, 0, 0])[1]
+                             for r in result
+                             if (r.get("label", "") in self._SEARCH_CATEGORY_KEYS or
+                                 self._normalize_ocr_category_text(r.get("label", "")) in self._SEARCH_CATEGORY_KEYS)]
+        if all_category_tops:
+            topmost_category_bottom = max(topmost_category_bottom, min(all_category_tops))
+        self.logger.info("分类标签边界 y=%s，只有 bbox[1]>%s 的结果才会被点击", topmost_category_bottom, topmost_category_bottom)
+
+        # 优先精确匹配目标联系人：OCR 结果中包含目标名称时，
+        # 必须位于分类标签下方（排除"搜索网络结果"等顶部分类下的条目）
+        valid_target_matches = []
+        for r in result:
+            r_label = r.get("label", "")
+            if not r_label:
+                continue
+            # 排除明显不是联系人的条目（数字、符号、分类标签本身）
+            if r_label.strip().isdigit():
+                continue
+            norm_label = self._normalize_ocr_category_text(r_label)
+            if r_label in self._SEARCH_CATEGORY_KEYS or norm_label in self._SEARCH_CATEGORY_KEYS:
+                continue
+            if any(kw in r_label for kw in ("搜索网络", "搜索", "六", "Q")):
+                continue
+            # 模糊匹配：OCR 标签包含目标，或目标包含 OCR 标签
+            if (target in r_label or r_label in target or
+                    self._fuzzy_match(target, r_label)):
+                r_bbox = r.get("pixel_bbox", [])
+                if len(r_bbox) == 4:
+                    # 关键：必须位于分类标签下方（bbox top > 边界）才算有效
+                    if r_bbox[1] <= topmost_category_bottom:
+                        self.logger.info(
+                            "跳过目标「%s」（bbox=%s），bbox[1]=%s <= 边界y=%s",
+                            r_label, r_bbox, r_bbox[1], topmost_category_bottom,
+                        )
+                        continue
+                    valid_target_matches.append({"r": r, "label": r_label, "bbox": r_bbox})
+
+        # 如果只找到 1 个有效匹配（且有分类标签），说明搜索结果可能还未完全加载，
+        # 等一下再重新截图 OCR 进行验证（最多重试两次）。
+        # 注意：此处不依赖 gap 判断，因为 OCR 结果不完整时 gap 也可能较大。
+        need_retry = (len(valid_target_matches) == 1 and topmost_category_bottom > 0)
+        retry_count = 0
+        max_retries = 2
+        while retry_count < max_retries:
+            if not need_retry:
+                break
+
+            retry_count += 1
+            wait_time = 0.5 + retry_count * 0.4
+            self.logger.info("第 %d 次重试，等待 %.1fs 后重新 OCR", retry_count, wait_time)
+            time.sleep(wait_time)
+
+            screenshot2 = self.image_processor.take_screenshot(region=region)
+            if not screenshot2:
+                break
+
+            result2 = self.ocr_processor.process_image(image=screenshot2)
+            self.logger.info("重试 OCR 返回 %d 个识别结果", len(result2))
+
+            new_matches = []
+            for r in result2:
+                r_label = r.get("label", "")
+                if not r_label:
+                    continue
+                if r_label.strip().isdigit():
+                    continue
+                norm_label = self._normalize_ocr_category_text(r_label)
+                if r_label in self._SEARCH_CATEGORY_KEYS or norm_label in self._SEARCH_CATEGORY_KEYS:
+                    continue
+                if any(kw in r_label for kw in ("搜索网络", "搜索", "六", "Q")):
+                    continue
+                if (target in r_label or r_label in target or
+                        self._fuzzy_match(target, r_label)):
+                    r_bbox = r.get("pixel_bbox", [])
+                    if len(r_bbox) == 4 and r_bbox[1] > topmost_category_bottom:
+                        new_matches.append({"r": r, "label": r_label, "bbox": r_bbox})
+
+            self.logger.info("重试后有效匹配数: %d", len(new_matches))
+            if len(new_matches) >= 1:
+                valid_target_matches = new_matches
+                need_retry = False
+                break
+
+        # 从所有有效匹配中，选择最靠上的那个
+        if valid_target_matches:
+            best = min(valid_target_matches, key=lambda x: x["bbox"][1])
+            r = best.get("r")
+            r_label = best.get("label", "")
+            r_bbox = best["bbox"]
+
+            # OCR 文字 bbox 只覆盖文字本身，不包含整行可点击区域。
+            # x: 使用分类标签 left + 固定偏移（已验证可落在联系人名字区域），
+            #    而不是文字 bbox 中心（会偏到头像/空白区）
+            # y: 使用文字 bbox top + row_offset（联系人行高度）
+            if labels:
+                cat_bbox = labels[0].get("pixel_bbox", [0, 0, 0, 0])
+                click_x = int(cat_bbox[0] + ox + 80)   # 分类标签左边界右偏80，落在联系人名字区
+                click_y = int(r_bbox[1] + oy + row_offset)  # 文字 top + 行高 = 行中心
+            else:
+                click_x = int((r_bbox[0] + r_bbox[2]) / 2 + ox)
+                click_y = int((r_bbox[1] + r_bbox[3]) / 2 + oy)
+
+            self.logger.info(
+                "精确匹配到目标联系人: 「%s」bbox=%s，点击: (%d, %d)",
+                r_label, r_bbox, click_x, click_y,
+            )
+            pyautogui.click(click_x, click_y)
+            time.sleep(self.switch_contact_delay)
+            color = self.image_processor.get_pixel_color(
+                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
+                self.TITLE_BAR_HEIGHT - 5,
+            )
+            if color == (255, 255, 255):
+                self.logger.warning("点击后搜索态仍在，切换可能失败")
+                return False, r_label
+            self.logger.info("搜索浮层已关闭，假定已进入会话")
+            return True, r_label
+
+        if not labels:
+            return False, ""
+
         category_label = labels[0]
         bbox = category_label.get("pixel_bbox")
         if not bbox or len(bbox) != 4:
             self.logger.error("分类标签 bbox 无效")
-            return False
+            return False, ""
 
-        ox, oy = region[0], region[1]
         category_bottom = bbox[3] + oy
 
         # 找分类标签下方最近的搜索结果（排除"搜索网络结果"和标签本身）
@@ -1353,12 +1502,14 @@ class WindowManager:
             off_x, off_y = self.search_contact_offset
             final_x = int(cx + off_x)
             final_y = int(click_y + off_y)
+            selected_contact_label = ""
         else:
             # 选择最靠上的候选结果
             candidates.sort(key=lambda x: x["top"])
             first_result = candidates[0]
             final_x = int(first_result["center_x"])
             final_y = int(first_result["center_y"])
+            selected_contact_label = first_result["label"]
             self.logger.info(
                 "找到分类「%s」下方搜索结果: 「%s」, bbox=%s",
                 category_label.get("label"), first_result["label"], first_result["bbox"],
@@ -1376,9 +1527,9 @@ class WindowManager:
         )
         if color == (255, 255, 255):
             self.logger.warning("点击后搜索态仍在（标题区仍为白），切换可能失败")
-            return False
+            return False, selected_contact_label
         self.logger.info("搜索浮层已关闭，假定已进入会话")
-        return True
+        return True, selected_contact_label
 
     def switch_session(self, target: str) -> bool:
         """
@@ -1416,7 +1567,8 @@ class WindowManager:
             pyautogui.hotkey("ctrl", "v")
             self.logger.info(f"正在搜索联系人: {target}")
 
-            if self._pick_search_result_via_ocr(target):
+            success, selected_label = self._pick_search_result_via_ocr(target)
+            if success:
                 # OCR 点击成功后会检测搜索浮层是否关闭，不需要额外按 ESC
                 time.sleep(max(self.action_delay, 0.15))
                 self.last_switch_session = target
@@ -1427,6 +1579,39 @@ class WindowManager:
             time.sleep(self.action_delay)
             pyautogui.press("enter")
             time.sleep(self.switch_contact_delay)
+
+            # 回车后截图验证联系人名称是否匹配目标
+            verify_region = [self.SIDE_BAR_WIDTH, self.TITLE_BAR_HEIGHT,
+                             self.size_config.width // 3, int(self.size_config.height * 0.06)]
+            verify_screenshot = self.image_processor.take_screenshot(region=verify_region)
+            if verify_screenshot:
+                try:
+                    import os
+                    os.makedirs("runtime_images", exist_ok=True)
+                    verify_screenshot.save("runtime_images/verify_contact.png")
+                except Exception:
+                    pass
+                verify_result = self.ocr_processor.process_image(image=verify_screenshot)
+                self.logger.info("验证截图 OCR 返回 %d 个结果: %s",
+                                 len(verify_result), [r.get("label", "") for r in verify_result])
+                # 取 y 坐标最小的文字（会话标题通常在最上方）
+                if verify_result:
+                    verify_result.sort(key=lambda x: x.get("pixel_bbox", [0, 0, 0, 9999])[1])
+                    verified_name = verify_result[0].get("label", "").strip()
+                    self.logger.info("回车后会话标题 OCR: 「%s」", verified_name)
+                    # 模糊匹配：目标名称是验证标题的子串，或反之
+                    if (verified_name and
+                        (target in verified_name or verified_name in target or
+                         self._fuzzy_match(target, verified_name))):
+                        self.logger.info("回车兜底验证通过: 「%s」", verified_name)
+                    else:
+                        self.logger.warning(
+                            "回车后会话标题「%s」与目标「%s」不匹配，回退清除搜索框",
+                            verified_name, target,
+                        )
+                        pyautogui.press("escape")
+                        time.sleep(0.3)
+
             color = self.image_processor.get_pixel_color(
                 self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
                 self.TITLE_BAR_HEIGHT - 5,
@@ -1436,7 +1621,11 @@ class WindowManager:
                 return False
             time.sleep(max(self.action_delay, 0.15))
             time.sleep(0.5)  # 加长等待
-            # 检查是否还在搜索态
+            # 重新检查是否还在搜索态
+            color = self.image_processor.get_pixel_color(
+                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
+                self.TITLE_BAR_HEIGHT - 5,
+            )
             if color == (255, 255, 255):
                 self.logger.warning("仍处于搜索态，再次尝试 ESC")
                 pyautogui.press("escape")
@@ -1647,14 +1836,17 @@ class WindowManager:
         elif windowType == WindowTypeEnum.SearchContactWindow:
             for window in filter_windows:
                 if window.title == "Weixin":
-                    # 这里固定在左上角，所以要判断以下开始位置在左上角
+                    # 搜索浮层固定在左上角区域（相对于桌面坐标）
+                    # 放宽判断条件：只要窗口在主窗口左侧区域（窗口左侧不超过屏幕中线）
+                    # 且在标题栏高度以下，就认为是搜索浮层
+                    win_right = window.left + window.width
+                    screen_mid = self.size_config.width // 2
                     if (
-                        window.left < self.SIDE_BAR_WIDTH
-                        and window.top < self.TITLE_BAR_HEIGHT
+                        window.left < screen_mid
+                        and window.top < self.size_config.height * 0.5
+                        and win_right > 0
                     ):
                         return window
-                    else:
-                        pass
         return None
 
     def open_friend_window(self) -> Optional[pyautogui.Window]:

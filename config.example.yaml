@@ -1,19 +1,29 @@
-dbkey:   # 数据库加密密钥，必须设置
-
+dbkey: XXX   # 数据库加密密钥，必须设置
 # AES加密用的密钥和XOR，格式为字符串, 设置为空，自动查找
 # 示例：aes_xor_key: 1234567890,17
 aes_xor_key: 
 
+# RPA API 服务配置（可选）
+# 提供 HTTP REST API 接口，允许外部系统直接调用 RPA 任务
+rpa_api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8001
+  #接口回调地址
+  callback_url:
+  #延迟消费秒数
+  process_delay: 10
+  #内置插件自动消费
+  auto_consume: true
+  #api调用发送消息接口消费
+  api_consume: true
+  
 # MCP服务配置
 mcp:
   # 监听主机地址，通常为0.0.0.0表示所有网卡
   host: 0.0.0.0
   # 监听端口
   port: 8000
-
-dingtalk:
-  # 钉钉机器人Webhook地址，当微信异常时，将推送异常消息和登录二维码
-  webhook_url: https://example.com/robot/send?access_token=YOUR_DINGTALK_TOKEN
 
 logging:
   # 日志文件最多保留数量
@@ -31,11 +41,11 @@ mqtt:
   # MQTT服务器地址
   host: 127.0.0.1
   # MQTT密码
-  password: 'YOUR_MQTT_PASSWORD'
+  password: 'public'
   # MQTT端口
   port: 1883
   # MQTT用户名
-  username: weixin
+  username: admin
 
 plugins:
   # 图片密钥辅助插件
@@ -53,16 +63,16 @@ plugins:
   openai-bot-plugin:
     enabled: true
     priority: 1497
-    openai_api_key: YOUR_OPENAI_API_KEY
-    openai_base_url: http://example.com:7860
-    openai_model: gemini-2.0-flash  # 使用的模型名
+    api_url: http://policy.zzsy.top/prod-api/wechat/msg/rpaMsg
+    openai_api_key: sk-111
+    openai_base_url: https://api.deepseek.com/v1/
+    openai_model: deepseek-chat  # 使用的模型名
     prompt: 你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} 
       你的昵称：{{self_nickname}} 群昵称：{{room_nickname}} 消息来自于：{{contact_nickname}}
   # 自发消息插件
   self-msg-plugin:
     enabled: true
     priority: 1998
-
 rpa:
   # RPA相关参数
   action_delay: 0.3  # 操作延迟（秒）
@@ -88,46 +98,6 @@ rpa:
   short_term_capacity: 2
   long_term_rate: 0.25
   long_term_capacity: 10
-
-# RPA API 服务配置（可选）
-# 提供 HTTP REST API 接口，允许外部系统直接调用 RPA 任务
-# 服务地址: http://<host>:<port> (默认 http://0.0.0.0:8001)
-rpa_api:
-  enabled: false  # 是否启用，默认关闭
-  host: 0.0.0.0  # 监听地址
-  port: 8001  # 监听端口
-  # 接口回调地址，当收到消息时POST到该地址（留空则不回调）
-  callback_url: ""
-  # 延迟处理秒数（默认30秒，与message_service保持一致）
-  process_delay: 30
-  # 是否启用自动消费（message_service自动处理消息）
-  auto_consume: true
-  # 是否启用API消费（通过API接口处理消息）
-  api_consume: true
-
-  # API接口说明：
-  # -----------------------------------------------------------
-  # POST /api/v1/send/text - 发送文本消息
-  #   请求: {"recipient_name": "联系人", "message": "消息内容", "at_user_name": null}
-  #   响应: {"success": true, "task_id": "xxx", "message": "消息已提交到队列"}
-  #
-  # POST /api/v1/send/file - 发送文件
-  #   请求: {"recipient_name": "联系人", "file_path": "文件路径"}
-  #
-  # POST /api/v1/recall/message - 撤回消息（三种方式）
-  #   方式1: {"contact_name": "联系人", "message_text": "消息内容", "similarity": 0.6}
-  #   方式2: {"contact_name": "联系人", "keyword": "关键词"}
-  #   方式3: {"contact_name": "联系人", "recall_latest": true}
-  # -----------------------------------------------------------
-  #
-  # 示例cURL调用:
-  #   curl -X POST "http://localhost:8001/api/v1/send/text" \
-  #     -H "Content-Type: application/json" \
-  #     -d '{"recipient_name": "张三", "message": "你好"}'
-  #
-  #   curl -X POST "http://localhost:8001/api/v1/recall/message" \
-  #     -H "Content-Type: application/json" \
-  #     -d '{"contact_name": "张三", "recall_latest": true}'
 
 wxgf:
   # 微信GF解析API地址，暂时未开放，查看roammap更新计划

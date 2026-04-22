@@ -2,3 +2,4 @@
 WeixinOmni 项目主模块。
 本包为微信全能机器人SDK的核心实现，包含所有基础能力、接口与扩展点。
 """
+from omni_bot_sdk.bot import Bot

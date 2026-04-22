@@ -129,8 +129,6 @@ cython_debug/
 
 # VS Code settings
 .vscode/ 
-src/omni_bot_sdk/services/core/database_service.py
-src/omni_bot_sdk/utils/fuck_zxl.py
 src/omni_bot_sdk/yolo/models/msg_rec2.pt
 examples/simple-bot/aes_xor_key.dat
 examples/simple-bot/config.yaml
