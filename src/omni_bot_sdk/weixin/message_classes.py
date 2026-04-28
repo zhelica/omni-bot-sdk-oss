@@ -145,7 +145,7 @@ class Message:
             ):
                 # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
                 #print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
-                return True
+                return False
             else:
                 #print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
                 return False

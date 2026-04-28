@@ -345,8 +345,12 @@ class WindowManager:
                 time.sleep(self.scroll_delay)
                 init_result = self._init_window_part_size()
                 if init_result:
+                    windows = pyautogui.getWindowsWithTitle("微信")
+                    if not windows:
+                        self.logger.error("无法获取微信窗口句柄，窗口可能已关闭")
+                        return False
                     self.weixin_windows["微信"] = {
-                        "window": pyautogui.getWindowsWithTitle("微信")[0],
+                        "window": windows[0],
                         "MSG_TOP_X": self.MSG_TOP_X,
                         "MSG_TOP_Y": self.MSG_TOP_Y,
                         "MSG_WIDTH": self.MSG_WIDTH,
@@ -376,7 +380,9 @@ class WindowManager:
         """
         直接扫描截图像素，分析功能区域
         需要增加 通讯录 和 朋友圈
+        Win10/Win11 兼容：多行扫描+投票机制，避免单行纯色导致检测失败
         """
+        import os
         self.logger.info(
             f"微信窗口预设尺寸：{self.size_config.width}, {self.size_config.height}"
         )
@@ -402,20 +408,64 @@ class WindowManager:
         SESSION_LIST_WIDTH = 0
         MSG_WIDTH = 0
         breakPoint = []
+
+        # ---------- 水平边界：多行扫描 + 投票 ----------
         # 第一个变化点是 侧边栏和会话列表，第二个变化点是会话列表右侧和聊天详情，每次变化产生两个点
-        j = 10
-        for i in range(10, self.size_config.width * 2 // 3):
-            if i == 10:
-                pass
-            else:
+        # Win10 单行可能全纯色，改为扫描多行取并集
+        scan_rows = [5, 10, 15, 20, 25]
+        all_breakpoints: List[int] = []
+        for j in scan_rows:
+            row_bp: List[int] = []
+            for i in range(10, self.size_config.width * 2 // 3):
+                if i == 10:
+                    continue
                 if pixels[i, j] != pixels[i - 1, j]:
-                    breakPoint.append(i)
-                    if len(breakPoint) == 4:
+                    row_bp.append(i)
+                    if len(row_bp) == 4:
                         break
-        SIDE_BAR_WIDTH = breakPoint[1]
-        SESSION_LIST_WIDTH = breakPoint[3] - SIDE_BAR_WIDTH
-        # 从 SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + 1 开始，向下匹配，第一个变色就是标题栏的高度，第二个就是消息栏的区域
-        self.MSG_TOP_X = breakPoint[3]
+            all_breakpoints.extend(row_bp)
+
+        if not all_breakpoints:
+            # 兜底：截图保存用于调试
+            try:
+                os.makedirs("runtime_images", exist_ok=True)
+                screenshot.save("runtime_images/init_fail_debug.png")
+                self.logger.warning("水平扫描为空，调试截图已保存: runtime_images/init_fail_debug.png")
+            except Exception:
+                pass
+            self.logger.error(
+                "水平边界扫描完全无颜色变化，可能截图区域错误或不在聊天页面"
+            )
+            return False
+
+        # 聚类：将相近的 breakpoint 合并（±5px 范围内归为同一簇）
+        def cluster_points(points: List[int], threshold: int = 5) -> List[int]:
+            if not points:
+                return []
+            sorted_pts = sorted(points)
+            clusters: List[List[int]] = []
+            for pt in sorted_pts:
+                if not clusters or pt - clusters[-1][-1] > threshold:
+                    clusters.append([pt])
+                else:
+                    clusters[-1].append(pt)
+            # 每簇取中位数
+            return [sorted(c)[len(c) // 2] for c in clusters]
+
+        clustered = cluster_points(all_breakpoints)
+        self.logger.info(f"水平边界聚类结果: {clustered}")
+
+        if len(clustered) < 4:
+            self.logger.error(
+                f"水平边界扫描不足，聚类后需要4个点但只找到 {len(clustered)} 个: {clustered}"
+            )
+            return False
+
+        SIDE_BAR_WIDTH = clustered[1]
+        SESSION_LIST_WIDTH = clustered[3] - SIDE_BAR_WIDTH
+
+        # ---------- 垂直边界（标题栏高度） ----------
+        self.MSG_TOP_X = clustered[3]
         breakPoint.clear()
         j = SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + 3
         for i in range(10, 500):
@@ -423,16 +473,22 @@ class WindowManager:
                 breakPoint.append(i)
                 if len(breakPoint) == 4:
                     break
+        if len(breakPoint) < 1:
+            self.logger.error(
+                f"垂直边界扫描不足，需要至少1个点但只找到 {len(breakPoint)} 个: {breakPoint}"
+            )
+            return False
         TITLE_BAR_HEIGHT = breakPoint[0]
         self.MSG_TOP_Y = TITLE_BAR_HEIGHT
 
+        # ---------- 消息区域垂直扫描 ----------
         breakPoint.clear()
         j = self.MSG_TOP_X + 2
         TITLE_BAR_HEIGHT = 0
         MSG_HEIGHT = 0
         for i in range(10, self.size_config.height - 10):
             if i == 10:
-                pass
+                continue
             else:
                 if pixels[j, i] != pixels[j, i - 1]:
                     breakPoint.append(i)
@@ -441,9 +497,10 @@ class WindowManager:
         # 如果一路找下来，一片白板，明显就是右侧没有加载东西，是刚刚启动，还有一种情况，就是在公众号那些页面也有可能，其实这里是好弄的，主要是不在聊天页面，发送按钮不好找
         # TODO 用 yolo找头像，然后确定点击的位置更加好
         if len(breakPoint) < 3:
-            # 主动去点击第一个存在的用户，让他切换一下
-            # pyautogui.moveTo()
-            # pyautogui.click()
+            self.logger.error(
+                f"消息区域垂直扫描不足，需要至少3个点但只找到 {len(breakPoint)} 个: {breakPoint}，"
+                f"可能不在聊天页面"
+            )
             return False
         TITLE_BAR_HEIGHT = breakPoint[1]
         self.MSG_TOP_Y = TITLE_BAR_HEIGHT
@@ -1168,7 +1225,11 @@ class WindowManager:
         for window in windows:
             if window.title == "预览":
                 window.close()
-        chat_window = pyautogui.getWindowsWithTitle("微信")[0]
+        wechat_windows = pyautogui.getWindowsWithTitle("微信")
+        if not wechat_windows:
+            self.logger.error("微信窗口未找到，请检查微信是否正常运行")
+            return False
+        chat_window = wechat_windows[0]
         if chat_window:
             self._activate_window("微信")
             if reposition:
@@ -1193,7 +1254,11 @@ class WindowManager:
     def _activate_window(self, title: str = "微信"):
         """激活微信窗口"""
         try:
-            window = pyautogui.getWindowsWithTitle(title)[0]
+            windows = pyautogui.getWindowsWithTitle(title)
+            if not windows:
+                self.logger.error(f"{title} 窗口未找到")
+                return False
+            window = windows[0]
             window.activate()
             return True
         except Exception as e:
@@ -1428,16 +1493,9 @@ class WindowManager:
             r_bbox = best["bbox"]
 
             # OCR 文字 bbox 只覆盖文字本身，不包含整行可点击区域。
-            # x: 使用分类标签 left + 固定偏移（已验证可落在联系人名字区域），
-            #    而不是文字 bbox 中心（会偏到头像/空白区）
-            # y: 使用文字 bbox top + row_offset（联系人行高度）
-            if labels:
-                cat_bbox = labels[0].get("pixel_bbox", [0, 0, 0, 0])
-                click_x = int(cat_bbox[0] + ox + 80)   # 分类标签左边界右偏80，落在联系人名字区
-                click_y = int(r_bbox[1] + oy + row_offset)  # 文字 top + 行高 = 行中心
-            else:
-                click_x = int((r_bbox[0] + r_bbox[2]) / 2 + ox)
-                click_y = int((r_bbox[1] + r_bbox[3]) / 2 + oy)
+            # 直接使用文字 bbox 中心点击，避免偏移
+            click_x = int((r_bbox[0] + r_bbox[2]) / 2 + ox)
+            click_y = int((r_bbox[1] + r_bbox[3]) / 2 + oy)
 
             self.logger.info(
                 "精确匹配到目标联系人: 「%s」bbox=%s，点击: (%d, %d)",

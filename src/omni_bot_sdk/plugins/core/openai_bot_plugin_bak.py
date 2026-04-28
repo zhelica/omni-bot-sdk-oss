@@ -24,10 +24,10 @@ class OpenAIBotPluginConfig(BaseModel):
     prompt: 系统提示词，支持 {{chat_history}}、{{time_now}}、{{self_nickname}}、{{room_nickname}}、{{contact_nickname}} 变量占位符
     """
 
-    enabled: bool = True
-    openai_api_key: str = "sk-20bd5387ed5f470a870cbdf01516913e"
-    openai_base_url: str = "https://api.deepseek.com/v1/"
-    openai_model: str = "deepseek-chat"
+    enabled: bool = False
+    openai_api_key: str = "unknown"
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-3.5-turbo"
     priority: int = 100
     prompt: str = (
         "你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} "

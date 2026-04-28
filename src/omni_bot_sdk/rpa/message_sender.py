@@ -43,10 +43,10 @@ class MessageSender:
 
     def send_message(self, message: str, clear_input_box: bool = True, max_retries: int = 2) -> bool:
         """
-        发送文本消息。
+        发送文本消息。进入会话后直接粘贴并回车发送，无需定位发送按钮。
         Args:
             message (str): 消息内容。
-            clear_input_box (bool): 是否先清空输入框。
+            clear_input_box (bool): 是否先清空输入框（切换会话后输入框已激活，默认不清空）。
             max_retries (int): 最大重试次数。
         Returns:
             bool: 是否发送成功。
@@ -57,11 +57,7 @@ class MessageSender:
                     self.logger.info(f"发送消息重试 (第 {attempt + 1} 次)...")
                     time.sleep(0.5)
 
-                if not self.window_manager.activate_input_box():
-                    self.logger.warning("激活输入框失败")
-                    continue
-                # 等待输入框获得焦点（刚从搜索切换时尤其容易抢不到焦点）
-                time.sleep(0.25)
+                # 进入会话后输入框已激活，无需再次 activate_input_box
                 if clear_input_box:
                     pyautogui.hotkey("ctrl", "a")
                     time.sleep(0.3)
@@ -74,13 +70,8 @@ class MessageSender:
                 pyautogui.hotkey("ctrl", "v")
                 time.sleep(0.3)
                 self.logger.info("已执行 Ctrl+V 粘贴")
-                # 点击发送按钮
-                center = self.window_manager.get_send_button_center_exact()
-                self.logger.info(f"点击发送按钮: {center}")
-                pyautogui.click(center[0], center[1])
-                time.sleep(0.2)
-                # 回车兜底，双重保险
-                self.logger.info("回车兜底发送")
+                # 直接回车发送，无需定位发送按钮
+                self.logger.info("回车发送")
                 pyautogui.press("enter")
                 time.sleep(0.3)
                 self.logger.info("消息发送完成")
