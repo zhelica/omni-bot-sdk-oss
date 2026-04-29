@@ -17,7 +17,7 @@
 Omni-Bot-SDK 是一个**运行时零侵入**的微信自动化框架。它不依赖复杂的逆向工程或Hook技术，而是通过**"视觉感知+数据驱动"**的方式，模拟人类操作习惯，安全、稳定地构建你的专属微信机器人。
 
 🙏 **鸣谢**
-本项目基于开源项目 **[chat-mind-rpa](https://github.com/weixin-omni/chat-mind-rpa)** 进行二次开发。
+本项目基于开源项目 **[omni-bot-sdk-oss](https://github.com/weixin-omni/omni-bot-sdk-oss)** 进行二次开发。
 原作者已停止维护，本分支在此基础上新增：**API 调用方式、消息撤回功能、对接微信 ilink 协议、掉线自动发送二维码**等能力。
 
 ## 🌟 核心原理：像人一样"看"和"做"
