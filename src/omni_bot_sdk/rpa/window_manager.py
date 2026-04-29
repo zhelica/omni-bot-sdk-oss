@@ -357,7 +357,7 @@ class WindowManager:
                         "MSG_HEIGHT": self.MSG_HEIGHT,
                         "region": [
                             0,
-                            0,
+                            self.window_margin,
                             self.size_config.width,
                             self.size_config.height,
                         ],
@@ -383,6 +383,7 @@ class WindowManager:
         Win10/Win11 兼容：多行扫描+投票机制，避免单行纯色导致检测失败
         """
         import os
+        from collections import Counter
         self.logger.info(
             f"微信窗口预设尺寸：{self.size_config.width}, {self.size_config.height}"
         )
@@ -395,50 +396,40 @@ class WindowManager:
         screenshot = self.image_processor.take_screenshot(
             region=[
                 0,
-                0,
+                self.window_margin,
                 self.size_config.width,
                 self.size_config.height,
             ],
         )
 
-        # 读取图片
-        # 获取像素数据
+        # 截图诊断：保存调试截图并统计颜色多样性
+        try:
+            os.makedirs("runtime_images", exist_ok=True)
+            screenshot.save("runtime_images/init_debug.png")
+        except Exception:
+            pass
         pixels = screenshot.load()
-        SIDE_BAR_WIDTH = 0
-        SESSION_LIST_WIDTH = 0
-        MSG_WIDTH = 0
-        breakPoint = []
+        w, h = screenshot.size
 
-        # ---------- 水平边界：多行扫描 + 投票 ----------
-        # 第一个变化点是 侧边栏和会话列表，第二个变化点是会话列表右侧和聊天详情，每次变化产生两个点
-        # Win10 单行可能全纯色，改为扫描多行取并集
-        scan_rows = [5, 10, 15, 20, 25]
-        all_breakpoints: List[int] = []
-        for j in scan_rows:
-            row_bp: List[int] = []
-            for i in range(10, self.size_config.width * 2 // 3):
-                if i == 10:
-                    continue
-                if pixels[i, j] != pixels[i - 1, j]:
-                    row_bp.append(i)
-                    if len(row_bp) == 4:
-                        break
-            all_breakpoints.extend(row_bp)
+        # 统计截图的多样性（唯一颜色数），判断是否接近白屏
+        def count_unique_colors(pix, w, h):
+            # 采样 500 个像素估计
+            step = max(1, (w * h) // 500)
+            colors = set()
+            for idx in range(0, w * h, step):
+                x = idx % w
+                y = idx // w
+                colors.add(pix[x, y])
+            return len(colors)
 
-        if not all_breakpoints:
-            # 兜底：截图保存用于调试
-            try:
-                os.makedirs("runtime_images", exist_ok=True)
-                screenshot.save("runtime_images/init_fail_debug.png")
-                self.logger.warning("水平扫描为空，调试截图已保存: runtime_images/init_fail_debug.png")
-            except Exception:
-                pass
-            self.logger.error(
-                "水平边界扫描完全无颜色变化，可能截图区域错误或不在聊天页面"
+        unique_colors = count_unique_colors(pixels, w, h)
+        self.logger.info(f"截图尺寸: {w}x{h}, 估计唯一颜色数: {unique_colors}")
+        if unique_colors < 5:
+            self.logger.warning(
+                f"截图颜色过于单一（仅{unique_colors}种颜色），可能是空白区域或截图区域错误"
             )
-            return False
 
-        # 聚类：将相近的 breakpoint 合并（±5px 范围内归为同一簇）
+        # ---------- 辅助函数：聚类 ----------
         def cluster_points(points: List[int], threshold: int = 5) -> List[int]:
             if not points:
                 return []
@@ -449,15 +440,67 @@ class WindowManager:
                     clusters.append([pt])
                 else:
                     clusters[-1].append(pt)
-            # 每簇取中位数
             return [sorted(c)[len(c) // 2] for c in clusters]
 
-        clustered = cluster_points(all_breakpoints)
-        self.logger.info(f"水平边界聚类结果: {clustered}")
+        def scan_horizontal(pix, scan_y_list, x_max, need=4):
+            """多行水平扫描，返回聚类后的边界列表"""
+            all_bp: List[int] = []
+            for j in scan_y_list:
+                row_bp: List[int] = []
+                for i in range(10, x_max):
+                    if i == 10:
+                        continue
+                    if pix[i, j] != pix[i - 1, j]:
+                        row_bp.append(i)
+                        if len(row_bp) == need:
+                            break
+                all_bp.extend(row_bp)
+            return cluster_points(all_bp)
+
+        SIDE_BAR_WIDTH = 0
+        SESSION_LIST_WIDTH = 0
+        MSG_WIDTH = 0
+        breakPoint: List[int] = []
+
+        # ---------- 策略1：扫描窗口顶部多行 ----------
+        clustered = scan_horizontal(pixels, [5, 10, 15, 20, 25], w * 2 // 3)
+        self.logger.info(f"水平边界扫描（策略1顶部行）: {clustered}")
+
+        # ---------- 策略2：扫描中间行（备用） ----------
+        if len(clustered) < 4:
+            mid_y = [h // 4, h // 4 + 5, h // 4 + 10, h // 4 + 15, h // 4 + 20]
+            clustered2 = scan_horizontal(pixels, mid_y, w * 2 // 3)
+            self.logger.info(f"水平边界扫描（策略2中间行）: {clustered2}")
+            if len(clustered2) >= 4:
+                clustered = clustered2
+
+        # ---------- 策略3：全屏随机采样边界检测（兜底） ----------
+        if len(clustered) < 4:
+            self.logger.warning("策略1/2均不足，尝试策略3：全屏边缘扫描")
+            all_bp: List[int] = []
+            # 在宽度范围内多行采样
+            for j in range(0, min(h, 200), 10):
+                prev = None
+                for i in range(10, w * 2 // 3):
+                    if prev is None:
+                        prev = pixels[i, j]
+                        continue
+                    cur = pixels[i, j]
+                    if cur != prev:
+                        all_bp.append(i)
+                        prev = cur
+                        if len(all_bp) >= 20:
+                            break
+                    if len(all_bp) >= 20:
+                        break
+            clustered3 = cluster_points(all_bp)
+            self.logger.info(f"水平边界扫描（策略3全屏）: {clustered3}")
+            if len(clustered3) >= 4:
+                clustered = clustered3
 
         if len(clustered) < 4:
             self.logger.error(
-                f"水平边界扫描不足，聚类后需要4个点但只找到 {len(clustered)} 个: {clustered}"
+                f"水平边界扫描不足，需要4个点但只找到 {len(clustered)} 个: {clustered}"
             )
             return False
 
@@ -801,7 +844,7 @@ class WindowManager:
         for attempt in range(max_attempts):
             try:
                 screenshot = self.image_processor.take_screenshot(
-                    region=[0, 0, self.size_config.width, self.size_config.height]
+                    region=[0, self.window_margin, self.size_config.width, self.size_config.height]
                 )
                 pixels = screenshot.load()
                 width, height = screenshot.size
@@ -1115,7 +1158,7 @@ class WindowManager:
                     ],
                 }
                 window.size = (self.size_config.width, self.size_config.height)
-                window.topleft = (self.size_config.width, 0)
+                window.topleft = (self.size_config.width, self.window_margin)
 
     def init_pyq_window(self) -> bool:
         """初始化朋友圈窗口"""
@@ -1233,7 +1276,8 @@ class WindowManager:
         if chat_window:
             self._activate_window("微信")
             if reposition:
-                chat_window.topleft = (0, 0)
+                # 距离屏幕顶部留出安全边距，避免窗口贴顶导致截图边缘重叠
+                chat_window.topleft = (0, self.window_margin)
             # 这里出现的问题，可能就是宽度有最小值，有可能会比最小值大
             chat_window.size = (self.size_config.width, self.size_config.height)
             if (

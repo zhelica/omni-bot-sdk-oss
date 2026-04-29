@@ -135,9 +135,13 @@ class Message:
 
     @property
     def is_self(self) -> bool:
+        content_sender_match = re.match(r"(wxid_\w+):", self.content)
+        sender_id = ""
+        if content_sender_match:
+            sender_id = content_sender_match.group(1)
         """判断消息是否来自自己"""
         if self.contact:
-            return self.user_info.account == self.contact.username
+            return self.user_info.account == sender_id
         else:
             if (
                 self.local_type == MessageType.System

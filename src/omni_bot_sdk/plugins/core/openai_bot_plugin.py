@@ -1,9 +1,9 @@
-import time
-from typing import Optional
 import re
-import requests
-import json
+import time
+from collections import OrderedDict
+from typing import Optional
 
+import openai
 from pydantic import BaseModel
 from omni_bot_sdk.plugins.interface import (
     Bot,
@@ -17,24 +17,69 @@ from omni_bot_sdk.plugins.interface import (
 
 class OpenAIBotPluginConfig(BaseModel):
     """
-    自定义 API Bot 插件配置
+    OpenAI Bot 插件配置
     enabled: 是否启用该插件
-    api_url: 备用API接口地址（默认地址）
-    api_key: API密钥（如果需要）
-    timeout: 请求超时时间（秒）
+    openai_api_key: OpenAI API密钥
+    openai_base_url: OpenAI API基础URL
+    openai_model: OpenAI模型名称
     priority: 插件优先级，数值越大优先级越高
+    prompt: 系统提示词，支持 {{chat_history}}、{{time_now}}、{{self_nickname}}、{{room_nickname}}、{{contact_nickname}} 变量占位符
     """
 
-    enabled: bool = True
-    api_url: str = ""
-    api_key: str = ""
-    timeout: int = 70
+    enabled: bool = False
+    openai_api_key: str = "unknown"
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-3.5-turbo"
     priority: int = 100
+    prompt: str = (
+        "你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} "
+        "你的昵称：{{self_nickname}} 群昵称：{{room_nickname}} 用户昵称是：{{contact_nickname}}，你可以称呼他的昵称"
+    )
+
+
+class ConversationContext:
+    """
+    单个会话的上下文历史，按 room_nickname:contact_nickname 索引。
+    使用 OrderedDict 保持顺序，最多保留 MAX_HISTORY 条。
+    """
+
+    def __init__(self, max_history: int = 20):
+        self.max_history = max_history
+        # 有序字典：key 为 msg.server_id，value 为 {"role": "user"/"assistant", "content": str}
+        self._history: OrderedDict[str, dict] = OrderedDict()
+
+    def add_user(self, server_id: str, content: str):
+        """添加用户消息"""
+        self._add(server_id, "user", content)
+
+    def add_assistant(self, server_id: str, content: str):
+        """添加 AI 回复"""
+        self._add(server_id, "assistant", content)
+
+    def _add(self, server_id: str, role: str, content: str):
+        self._history[server_id] = {"role": role, "content": content}
+        # 超过上限时移除最旧的消息
+        while len(self._history) > self.max_history:
+            self._history.popitem(last=False)
+
+    def get_history(self) -> str:
+        """将历史消息格式化为文本，用于填充 {{chat_history}} 占位符"""
+        if not self._history:
+            return ""
+        lines = []
+        for item in self._history.values():
+            role_prefix = "用户" if item["role"] == "user" else "AI"
+            lines.append(f"{role_prefix}：{item['content']}")
+        return "\n".join(lines)
+
+    def clear(self):
+        """清空历史"""
+        self._history.clear()
 
 
 class OpenAIBotPlugin(Plugin):
     """
-    自定义 API 聊天机器人插件实现类
+    OpenAI 聊天机器人插件实现类
     """
 
     priority = 100
@@ -42,72 +87,117 @@ class OpenAIBotPlugin(Plugin):
 
     def __init__(self, bot: "Bot"):
         super().__init__(bot)
-        self.api_url = self.plugin_config.api_url
-        self.api_key = self.plugin_config.api_key
-        self.timeout = self.plugin_config.timeout
+        self.api_key = self.plugin_config.openai_api_key
+        self.base_url = self.plugin_config.openai_base_url
+        self.model = self.plugin_config.openai_model
         self.enabled = self.plugin_config.enabled
         self.priority = getattr(self.plugin_config, "priority", self.__class__.priority)
         self.user = bot.user_info
-        self.logger.info(f"插件配置已加载: api_url={self.api_url}, api_key={self.api_key[:10] if self.api_key else 'None'}...")
+        self.prompt = self.plugin_config.prompt
+        openai.api_key = self.api_key
+        openai.base_url = self.base_url
+        # 会话上下文，按 room_nickname:contact_nickname 索引
+        self._conversation_contexts: dict[str, ConversationContext] = {}
+
+    def _get_context_key(self, msg) -> str:
+        """生成会话上下文 key：群聊用 room_nickname，私聊用 contact_nickname"""
+        if msg.is_chatroom:
+            room_name = msg.room.display_name if msg.room else ""
+            contact_name = msg.real_sender_id or ""
+        else:
+            room_name = ""
+            contact_name = msg.contact.display_name if msg.contact else msg.real_sender_id or ""
+        return f"{room_name}:{contact_name}"
+
+    def _get_or_create_context(self, msg) -> ConversationContext:
+        key = self._get_context_key(msg)
+        if key not in self._conversation_contexts:
+            self._conversation_contexts[key] = ConversationContext(max_history=20)
+        return self._conversation_contexts[key]
 
     def get_ai_response(self, msg) -> Optional[str]:
         if not self.enabled:
-            self.logger.info(f"未开启投保")
             return None
         try:
-            # 提取模板信息
-            parsed_content = msg.parsed_content.replace('\u2005', ' ').strip()
-            # 构造请求数据
-            request_data = {
-                "data":{
-                    "parsed_content": parsed_content
-                }
-            }
-            self.logger.info(f"请求数据: {request_data}")
-            # 调用自定义API接口
-            headers = {"Content-Type": "application/json"}
-            self.logger.info(f"调用自定义API: {self.api_url}")
-            self.logger.info(f"请求数据: {request_data}")
+            if msg.local_type == MessageType.Quote:
+                content = msg.content
+            else:
+                content = (
+                    msg.parsed_content.replace(f"@{self.user.nickname}", "")
+                    .replace("\u2005", "")
+                    .strip()
+                )
 
-            response = requests.post(
-                self.api_url,
-                json=request_data,
-                headers=headers,
-                timeout=self.timeout
+            time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+            # 获取当前会话上下文 key
+            context_key = self._get_context_key(msg)
+            ctx = self._get_or_create_context(msg)
+
+            # 先把用户消息加入历史（server_id 作为唯一 key 防止重复）
+            server_id = str(msg.server_id) if msg.server_id else f"user_{time.time()}"
+            ctx.add_user(server_id, content)
+
+            # 获取历史对话
+            chat_history = ctx.get_history()
+
+            # 构建 system_prompt
+            system_prompt = self.prompt
+            system_prompt = system_prompt.replace("{{chat_history}}", chat_history or "")
+            system_prompt = system_prompt.replace("{{time_now}}", time_now)
+            system_prompt = system_prompt.replace("{{self_nickname}}", self.user.nickname)
+            system_prompt = system_prompt.replace(
+                "{{room_nickname}}", msg.room.display_name if msg.room else ""
             )
 
-            if response.status_code == 200:
-                result = response.json()
-                # 假设API返回格式为 {"success": true, "message": "处理结果"}
-                return result.get("msg")
-            else:
-                self.logger.error(f"API调用失败，状态码: {response.status_code}, 响应: {response.text}")
-                return f"API调用失败: {response.status_code}"
+            # 查询发送者昵称
+            sender_id = msg.real_sender_id
+            content_sender_match = re.match(r"(wxid_\w+):", msg.content)
+            if content_sender_match:
+                sender_id = content_sender_match.group(1)
+            contact_nickname = sender_id or ""
+            if sender_id:
+                if msg.room:
+                    member_list = self.bot.db.get_room_member_list(msg.room.username)
+                    for member in member_list:
+                        if member.username == sender_id:
+                            contact_nickname = member.display_name
+                            break
+                else:
+                    contact = self.bot.db.get_contact_by_username(sender_id)
+                    if contact:
+                        contact_nickname = contact.display_name
 
-        except requests.exceptions.Timeout:
-            self.logger.error(f"API调用超时: {self.timeout}秒")
-            return "API调用超时，请稍后重试"
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"API调用网络错误: {e}")
-            return "网络连接错误，请检查API服务状态"
+            system_prompt = system_prompt.replace("{{contact_nickname}}", contact_nickname)
+            self.logger.info(f"system_prompt: {system_prompt}")
+            self.logger.info(f"会话上下文 key={context_key}, 当前历史条数={len(ctx._history)}, 内容={chat_history}")
+
+            messages = []
+            messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": content})
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                user=msg.room.username if msg.is_chatroom else msg.contact.username,
+            )
+            answer = response.choices[0].message.content.strip()
+
+            # 把 AI 回复也加入历史
+            assistant_id = f"assistant_{time.time()}"
+            ctx.add_assistant(assistant_id, answer)
+
+            return answer
         except Exception as e:
-            self.logger.error(f"处理消息时出错: {e}")
+            self.logger.error(f"获取AI响应时出错: {e}")
             return None
 
     def get_priority(self) -> int:
         return self.priority
 
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
-        """
-        处理接收到的消息
-        文本消息，引用消息处理，其他都先不处理
-        文本消息要判断是不是 at 我，或者是不是引用了我
-        前面的上下文插件会在上下文中添加 not_for_bot 字段，如果为True，则不进行AI回复
-        """
         if not self.enabled:
             return
         message = plusginExcuteContext.get_message()
-
         if (
             message.local_type != MessageType.Text
             and message.local_type != MessageType.Quote
@@ -115,14 +205,11 @@ class OpenAIBotPlugin(Plugin):
             return
         context = plusginExcuteContext.get_context()
         not_for_bot = context.get("not_for_bot", False)
-        if (
-            not_for_bot
-        ):  # 用户可能没有前置判断流程，这里需要采用一般逻辑，也就是私聊消息全部回复，群聊消息除了@和引用不回复，这是典型的机器人特征
+        if not_for_bot:
             return
-        # 增加判断条件，如果是私聊，直接可以响应，如果是群聊，必须引用或者@
         if message.is_chatroom:
             if message.local_type == MessageType.Text:
-                if message.is_mention_chat_only:
+                if message.is_at:
                     pass
                 else:
                     return
@@ -152,13 +239,12 @@ class OpenAIBotPlugin(Plugin):
                             is_chatroom=message.is_chatroom,
                             at_user_name=None,
                             quote_message=search_text,
-                            random_at_quote=True,  # 随机在@，引用，和不操作之间选择，在rpa里面有策略，实际上可以在操作的时候读取一下数据库，就会很方便
+                            random_at_quote=True,
                         )
                     ],
                 )
             )
         else:
-            # 私聊的消息，直接使用Dify的工作流回复
             return
         plusginExcuteContext.should_stop = True
 
@@ -166,7 +252,7 @@ class OpenAIBotPlugin(Plugin):
         return self.name
 
     def get_plugin_description(self) -> str:
-        return "保单投保插件"
+        return "OpenAI 聊天机器人插件"
 
     @classmethod
     def get_plugin_config_schema(cls):

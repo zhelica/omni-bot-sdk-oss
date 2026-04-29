@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 from pathlib import Path
 from pydantic import BaseModel
+import re
 
 from omni_bot_sdk.plugins.interface import Plugin, PluginExcuteContext
 
@@ -76,7 +77,8 @@ class SelfMsgPlugin(Plugin):
     async def handle_message(self, plusginExcuteContext: PluginExcuteContext) -> None:
         message = plusginExcuteContext.get_message()
         username = message.room.username if message.room else None
-
+        self.logger.info(f"自己: {message.user_info.account}")
+        self.logger.info(f"对方: {message.contact.username}")
         if message.is_self:
             self.logger.info("检测到是自己的消息，直接拦截，不再让后续的处理")
             plusginExcuteContext.should_stop = True

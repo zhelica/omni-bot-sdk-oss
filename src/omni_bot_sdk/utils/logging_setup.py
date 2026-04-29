@@ -33,8 +33,11 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO):
     # Windows 控制台强制使用 UTF-8 编码
     if sys.platform == "win32":
         import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        # PyInstaller 控制台构建已默认 UTF-8，仅在交互式 Python 环境下包装
+        # 注意：打包后重新包装 stdout 会导致流式输出缓冲异常，屏幕不刷新
+        if not getattr(sys, '_MEIPASS', False):
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
     # 创建彩色控制台处理器
     console_handler = colorlog.StreamHandler()
