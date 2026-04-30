@@ -4,6 +4,7 @@ import signal
 import time
 from typing import Any, List, Tuple
 import threading
+import requests
 
 from omni_bot_sdk.common.queues import message_queue, rpa_task_queue
 
@@ -61,6 +62,9 @@ class Bot:
             "图片AES key需要在微信启动后一小段时间内才能获取，如果无法获取请重新启动微信后重试"
         )
 
+        # 秘钥验证
+        self._validate_license()
+
         self.is_running = False
         self.is_paused = False  # 标记是否处于暂停状态
         self._status = None  # 当前状态
@@ -99,6 +103,56 @@ class Bot:
             self.plugin_manager,
             *all_services,
         ]
+
+    def _validate_license(self):
+        """
+        验证软件秘钥。
+        状态说明：0-初始，1-已激活，2-过期
+        """
+        license_config = self.config.get("license", {})
+        key = license_config.get("key", "")
+        
+        if not key:
+            self.logger.error("秘钥未配置，请检查 config.yaml 中的 license.key")
+            exit(1)
+        
+        check_url = "http://218.244.140.247/prod-api/bot/keys/check"
+        
+        try:
+            # 调用秘钥验证接口
+            url = f"{check_url}/{key}"
+            response = requests.get(url, timeout=10)
+            result = response.json()
+            
+            if result.get("code") != 200:
+                self.logger.error(f"秘钥验证请求失败: {result.get('msg', '未知错误')}")
+                exit(1)
+            
+            data = result.get("data", {})
+            status = data.get("status")
+            expires_time = data.get("expiresTime", "")
+            
+            if status == "0":
+                self.logger.error("秘钥状态为初始状态，请先激活秘钥")
+                exit(1)
+            elif status == "2":
+                self.logger.error(f"秘钥已过期，过期时间: {expires_time}")
+                exit(1)
+            elif status == "1":
+                self.logger.info(f"秘钥验证通过，有效期至: {expires_time}")
+            else:
+                self.logger.error(f"未知的秘钥状态: {status}")
+                exit(1)
+                
+        except requests.exceptions.Timeout:
+            self.logger.error("秘钥验证请求超时，请检查网络连接")
+            exit(1)
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"秘钥验证请求失败: {e}")
+            exit(1)
+        except Exception as e:
+            self.logger.error(f"秘钥验证异常: {e}")
+            exit(1)
 
     def _create_image_processor(self) -> ImageProcessor:
         """

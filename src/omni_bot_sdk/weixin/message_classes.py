@@ -135,11 +135,15 @@ class Message:
 
     @property
     def is_self(self) -> bool:
-        content_sender_match = re.match(r"(wxid_\w+):", self.content)
-        sender_id = ""
-        if content_sender_match:
-            sender_id = content_sender_match.group(1)
         """判断消息是否来自自己"""
+        sender_id = ""
+
+        # 安全判断：只有存在 content 属性时才执行正则匹配
+        if hasattr(self, 'content') and self.content is not None:
+            content_sender_match = re.match(r"(wxid_\w+):", self.content)
+            if content_sender_match:
+                sender_id = content_sender_match.group(1)
+
         if self.contact:
             return self.user_info.account == sender_id
         else:

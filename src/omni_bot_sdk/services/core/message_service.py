@@ -267,8 +267,9 @@ class MessageService:
                                     else:
                                         content = item_12
 
-                            self.logger.info(f"content: {content}, sender_wxid: {sender_wxid}, sender_name: {sender_name}")
-
+                            # 一行解决
+                            self.logger.info(
+                                f"content: {content.encode('gbk', 'ignore').decode('gbk')}, sender_wxid: {sender_wxid}, sender_name: {sender_name}")
                             # 如果配置了回调URL，发送回调（所有消息都会回调，包括私聊和群聊）
                             if self.callback_url:
                                 try:

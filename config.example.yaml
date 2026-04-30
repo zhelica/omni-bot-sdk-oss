@@ -1,4 +1,9 @@
 dbkey: XXX   # 数据库加密密钥，必须设置
+
+# 软件秘钥
+license:
+  key: "your-license-key"
+
 # AES加密用的密钥和XOR，格式为字符串, 设置为空，自动查找
 # 示例：aes_xor_key: 1234567890,17
 aes_xor_key: 
