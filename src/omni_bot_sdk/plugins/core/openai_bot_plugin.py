@@ -122,11 +122,12 @@ class OpenAIBotPlugin(Plugin):
             if msg.local_type == MessageType.Quote:
                 content = msg.content
             else:
-                content = (
-                    msg.parsed_content.replace(f"@{self.user.nickname}", "")
-                    .replace("\u2005", "")
-                    .strip()
-                )
+                content = msg.content
+                # content = (
+                #     msg.parsed_content.replace(f"@{self.user.nickname}", "")
+                #     .replace("\u2005", "")
+                #     .strip()
+                # )
 
             time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
@@ -175,12 +176,34 @@ class OpenAIBotPlugin(Plugin):
             messages = []
             messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": content})
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                user=msg.room.username if msg.is_chatroom else msg.contact.username,
-            )
-            answer = response.choices[0].message.content.strip()
+            
+            # 通过 WebSocket 发送消息给外部 AI 服务
+            import uuid
+            room_nickname = msg.room.display_name if msg.room else ""
+            event_id = str(uuid.uuid4())
+            ws_message = {
+                "event_id": event_id,
+                "event": {
+                    "msg_type": 1,  # 1-文本消息
+                    "room_id": msg.room.username if msg.is_chatroom else "",
+                    "room_nickname": room_nickname,
+                    "contact_nickname": contact_nickname,
+                    "self_nickname": self.user.nickname,
+                    "chat_history": chat_history,
+                    "time_now": time_now,
+                    "server_id": server_id,
+                    "content": content,
+                    "sender_id": sender_id,
+                    "guid": "123"
+                }
+            }
+            
+            if self.bot.websocket_service:
+                self.bot.websocket_service.broadcast(ws_message)
+                self.logger.info(f"已通过 WebSocket 发送消息: {ws_message}")
+            
+            # 等待外部 AI 服务的响应（暂时返回空，由外部服务通过其他方式回复）
+            answer = ""
 
             # 把 AI 回复也加入历史
             assistant_id = f"assistant_{time.time()}"
@@ -219,6 +242,11 @@ class OpenAIBotPlugin(Plugin):
                 else:
                     return
             response = self.get_ai_response(msg=message)
+            if not response:
+                # 消息已通过 WebSocket 发送，等待外部 AI 服务响应
+                self.logger.info("消息已通过 WebSocket 发送，等待外部 AI 响应")
+                return
+            search_text = message.content
             if message.local_type == MessageType.Quote:
                 search_text = message.content
             else:

@@ -8,7 +8,7 @@ from omni_bot_sdk.rpa.action_handlers.base_handler import (
     RPAAction,
     RPAActionType,
 )
-from omni_bot_sdk.utils.helpers import copy_file_to_clipboard
+from omni_bot_sdk.utils.helpers import read_temp_image
 
 
 @dataclass
@@ -48,7 +48,7 @@ class SendImageHandler(BaseActionHandler):
         try:
             if not self.window_manager.switch_session(action.target):
                 return False
-            if not copy_file_to_clipboard(action.image_path):
+            if not read_temp_image(action.image_path):
                 return False
             logger.info(f"图片已复制到剪贴板: {action.image_path}")
             time.sleep(self.controller.window_manager.action_delay)

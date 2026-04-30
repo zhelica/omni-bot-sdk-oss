@@ -118,3 +118,14 @@ bot_notify:
   ilink_bot_id: "2fef025d2b14@im.bot"
   secret: "1234"
   to_user_id: "o9cq80zVhB35-jdQsb1DUkS-RWL0@im.wechat"
+
+websocket:
+  # WebSocket 服务配置，用于与外部 AI 服务通信
+  enabled: true
+  host: "0.0.0.0"
+  port: 8002
+  secret_key: ""
+  # 认证信息
+  app_key: "your-app-key"
+  app_secret: "your-app-secret"
+  guid: "your-guid"

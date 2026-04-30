@@ -26,6 +26,7 @@ from omni_bot_sdk.services.core.processor_service import ProcessorService
 from omni_bot_sdk.services.core.rpa_api_service import create_api_service
 from omni_bot_sdk.services.core.rpa_service import RPAService
 from omni_bot_sdk.services.core.user_service import UserService
+from omni_bot_sdk.services.core.websocket_service import WebSocketService
 from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptService
 from omni_bot_sdk.services import NewFriendCheckService
 from omni_bot_sdk.services.functional.weixin_status_service import WeixinStatusService
@@ -238,6 +239,9 @@ class Bot:
             )
         dat_decrypt_service = DatDecryptService(self.user_info, self.config)
         new_friend_check_service = NewFriendCheckService(self.rpa_task_queue, self.db)
+        
+        # WebSocket 服务初始化
+        self._init_websocket_service()
 
         services_list = [
             weixin_status_service,
@@ -258,7 +262,28 @@ class Bot:
         self._init_rpa_api_service(mqtt_service)
 
         return services_list
-
+    
+    def _init_websocket_service(self):
+        """初始化 WebSocket 服务"""
+        ws_config = self.config.get("websocket", {})
+        if not ws_config.get("enabled", False):
+            self.logger.info("WebSocket 服务未启用，请在 config.yaml 中配置 websocket.enabled=true 启用")
+            self.websocket_service = None
+            return
+        
+        try:
+            self.websocket_service = WebSocketService(
+                host=ws_config.get("host", "0.0.0.0"),
+                port=ws_config.get("port", 8002),
+                app_key=ws_config.get("app_key", ""),
+                app_secret=ws_config.get("app_secret", ""),
+                guid=ws_config.get("guid", ""),
+            )
+            self.logger.info(f"WebSocket 服务已初始化: ws://{ws_config.get('host', '0.0.0.0')}:{ws_config.get('port', 8765)}")
+        except Exception as e:
+            self.logger.error(f"初始化 WebSocket 服务失败: {e}")
+            self.websocket_service = None
+    
     def _init_rpa_api_service(self, mqtt_service=None):
         """
         初始化 RPA API 服务。
@@ -470,6 +495,24 @@ class Bot:
         finally:
             loop.close()
 
+    def _start_websocket_server(self):
+        """在新线程中启动 WebSocket 服务器"""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.websocket_service._start_server())
+            loop.run_until_complete(asyncio.sleep(0.1))  # 让待处理任务完成
+        except Exception as e:
+            self.logger.error(f"WebSocket 服务启动失败: {e}")
+        finally:
+            # 取消所有待处理任务
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+
     def start(self):
         """
         启动Bot并阻塞主线程，直到接收到终止信号。
@@ -495,6 +538,16 @@ class Bot:
                 )
                 self._rpa_api_thread.start()
                 self.logger.info("RPA API 服务已在后台线程启动")
+
+            # 启动 WebSocket 服务
+            if self.websocket_service:
+                self._ws_thread = threading.Thread(
+                    target=self._start_websocket_server,
+                    name="WebSocket-Thread",
+                    daemon=True
+                )
+                self._ws_thread.start()
+                self.logger.info(f"WebSocket 服务已在后台线程启动: ws://{self.websocket_service.host}:{self.websocket_service.port}")
 
             self.mcp_app = create_app(self.db, self.user_info, self.config)
             self.mcp_app.run("streamable-http")
