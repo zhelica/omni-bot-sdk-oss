@@ -147,11 +147,7 @@ class OpenAIBotPlugin(Plugin):
                     actions=[
                         SendTextMessageAction(
                             content=response,
-                            target=(
-                                message.room.display_name
-                                if message.room
-                                else message.contact.display_name
-                            ),
+                            target=message.target,
                             is_chatroom=message.is_chatroom,
                             at_user_name=None,
                             quote_message=search_text,
