@@ -52,8 +52,7 @@ class SendImageHandler(BaseActionHandler):
                 return False
             logger.info(f"图片已复制到剪贴板: {action.image_path}")
             time.sleep(self.controller.window_manager.action_delay)
-
-            # 进入会话后输入框已激活，直接粘贴
+            # 搜索选联系人只允许一次鼠标点击；不要再点输入框（第二次点击易触发资料卡等弹窗）
             logger.info("执行 Ctrl+V 粘贴图片")
             pyautogui.hotkey("ctrl", "v")
             time.sleep(1)

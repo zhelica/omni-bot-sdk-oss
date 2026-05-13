@@ -108,6 +108,8 @@ class WindowManager:
         self.switch_contact_delay = self.rpa_config.get("switch_contact_delay", 0.3)
         self.window_show_delay = self.rpa_config.get("window_show_delay", 1.5)
         self.window_margin = self.rpa_config.get("window_margin", 20)
+        # 主窗口截图左上角相对屏幕坐标；与 _is_wechat_foreground 摆放位置一致
+        self._screenshot_origin: Tuple[int, int] = (0, self.window_margin)
         self.room_action_offset = tuple(
             self.rpa_config.get("room_action_offset", (0, -30))
         )
@@ -175,10 +177,16 @@ class WindowManager:
         return None
 
     def _is_plausible_send_button_bbox(self, bbox: List[int]) -> bool:
-        """过滤像素扫描失败产生的「竖条」或全窗错误框。"""
+        """过滤像素扫描失败产生的「竖条」或全窗错误框（相对主窗口截图原点）。"""
         if not bbox or len(bbox) != 4:
             return False
-        x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+        ox, oy = self._screenshot_origin
+        x1, y1, x2, y2 = (
+            int(bbox[0]) - ox,
+            int(bbox[1]) - oy,
+            int(bbox[2]) - ox,
+            int(bbox[3]) - oy,
+        )
         w, h = x2 - x1, y2 - y1
         if w < 24 or h < 18:
             return False
@@ -349,6 +357,7 @@ class WindowManager:
                     if not windows:
                         self.logger.error("无法获取微信窗口句柄，窗口可能已关闭")
                         return False
+                    ox, oy = self._screenshot_origin
                     self.weixin_windows["微信"] = {
                         "window": windows[0],
                         "MSG_TOP_X": self.MSG_TOP_X,
@@ -356,8 +365,8 @@ class WindowManager:
                         "MSG_WIDTH": self.MSG_WIDTH,
                         "MSG_HEIGHT": self.MSG_HEIGHT,
                         "region": [
-                            0,
-                            self.window_margin,
+                            ox,
+                            oy,
                             self.size_config.width,
                             self.size_config.height,
                         ],
@@ -392,14 +401,11 @@ class WindowManager:
         time.sleep(self.action_delay)
         pyautogui.click()
         time.sleep(self.scroll_delay)
-        # 主窗口截图，初始化布局完全按照这个截图进行
+        ox, oy = self._screenshot_origin
+        rw, rh = self.size_config.width, self.size_config.height
+        # 主窗口截图与窗口左上角对齐（贴屏时易截到桌面，水平分界点不足 4 个）
         screenshot = self.image_processor.take_screenshot(
-            region=[
-                0,
-                self.window_margin,
-                self.size_config.width,
-                self.size_config.height,
-            ],
+            region=[ox, oy, rw, rh],
         )
 
         # 截图诊断：保存调试截图并统计颜色多样性
@@ -462,14 +468,15 @@ class WindowManager:
         MSG_WIDTH = 0
         breakPoint: List[int] = []
 
+        x_scan_max = max(40, w - 10)
         # ---------- 策略1：扫描窗口顶部多行 ----------
-        clustered = scan_horizontal(pixels, [5, 10, 15, 20, 25], w * 2 // 3)
+        clustered = scan_horizontal(pixels, [5, 10, 15, 20, 25], x_scan_max)
         self.logger.info(f"水平边界扫描（策略1顶部行）: {clustered}")
 
         # ---------- 策略2：扫描中间行（备用） ----------
         if len(clustered) < 4:
             mid_y = [h // 4, h // 4 + 5, h // 4 + 10, h // 4 + 15, h // 4 + 20]
-            clustered2 = scan_horizontal(pixels, mid_y, w * 2 // 3)
+            clustered2 = scan_horizontal(pixels, mid_y, x_scan_max)
             self.logger.info(f"水平边界扫描（策略2中间行）: {clustered2}")
             if len(clustered2) >= 4:
                 clustered = clustered2
@@ -481,7 +488,7 @@ class WindowManager:
             # 在宽度范围内多行采样
             for j in range(0, min(h, 200), 10):
                 prev = None
-                for i in range(10, w * 2 // 3):
+                for i in range(10, x_scan_max):
                     if prev is None:
                         prev = pixels[i, j]
                         continue
@@ -508,7 +515,7 @@ class WindowManager:
         SESSION_LIST_WIDTH = clustered[3] - SIDE_BAR_WIDTH
 
         # ---------- 垂直边界（标题栏高度） ----------
-        self.MSG_TOP_X = clustered[3]
+        msg_left_x = clustered[3]
         breakPoint.clear()
         j = SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + 3
         for i in range(10, 500):
@@ -522,14 +529,13 @@ class WindowManager:
             )
             return False
         TITLE_BAR_HEIGHT = breakPoint[0]
-        self.MSG_TOP_Y = TITLE_BAR_HEIGHT
 
         # ---------- 消息区域垂直扫描 ----------
         breakPoint.clear()
-        j = self.MSG_TOP_X + 2
+        j = msg_left_x + 2
         TITLE_BAR_HEIGHT = 0
         MSG_HEIGHT = 0
-        for i in range(10, self.size_config.height - 10):
+        for i in range(10, h - 10):
             if i == 10:
                 continue
             else:
@@ -546,7 +552,7 @@ class WindowManager:
             )
             return False
         TITLE_BAR_HEIGHT = breakPoint[1]
-        self.MSG_TOP_Y = TITLE_BAR_HEIGHT
+        msg_top_y_local = TITLE_BAR_HEIGHT
         MSG_HEIGHT = breakPoint[3] - TITLE_BAR_HEIGHT - 2
         MSG_WIDTH = self.size_config.width - SIDE_BAR_WIDTH - SESSION_LIST_WIDTH - 2
         # 联系人区域的右上角，就是MSG_TOP的坐标，同时也是MSG的左上角，发送内容工具栏的右上角就是MSG区域的右下角
@@ -569,6 +575,7 @@ class WindowManager:
                     break
 
         # 处理不同的情况
+        search_from_ocr = False
         if len(breakPoint) >= 2:
             if len(breakPoint) == 2:
                 search_box_point[1] = (breakPoint[0] + breakPoint[1]) // 2
@@ -582,13 +589,17 @@ class WindowManager:
             self.logger.warning(f"搜索框像素扫描未找到，尝试OCR方法")
             search_pos = self.find_search_box_by_ocr()
             if search_pos:
-                search_box_point = get_center_point(search_pos)
+                search_box_point = list(get_center_point(search_pos))
+                search_from_ocr = True
             else:
                 # 最后使用相对比例计算
                 x = int(self.size_config.width * 0.7)
                 y = int(self.size_config.height * 0.035)
                 search_box_point = [x, y]
                 self.logger.warning(f"使用相对比例计算搜索框位置: {search_box_point}")
+        if not search_from_ocr:
+            search_box_point[0] += ox
+            search_box_point[1] += oy
 
         self.logger.info(f"search_btn_bbox: {search_box_point}")
 
@@ -596,22 +607,20 @@ class WindowManager:
         # 这里实际上需要保留一下右下角的距离，这样的话，就不用管窗口的大小，直接用距离算就行了
         send_btn_bbox = [0, 0, 0, 0]
         # 扫描范围根据窗口大小动态调整，确保能覆盖右下角区域
-        scan_range = min(300, self.size_config.width // 4)
+        scan_range = min(300, w // 4)
         for i in range(20, scan_range):
             if (
-                pixels[self.size_config.width - 1 - i, self.size_config.height - 1 - i]
-                != pixels[
-                    self.size_config.width - 1 - i, self.size_config.height - 1 - i - 1
-                ]
+                pixels[w - 1 - i, h - 1 - i]
+                != pixels[w - 1 - i, h - 1 - i - 1]
             ):
-                send_btn_bbox[2] = self.size_config.width - 1 - i
-                send_btn_bbox[3] = self.size_config.height - 1 - i
+                send_btn_bbox[2] = w - 1 - i
+                send_btn_bbox[3] = h - 1 - i
                 break
 
         button_right_x = send_btn_bbox[2] - 3
         button_right_y = send_btn_bbox[3] - 3
         # 从 button_right_x 向左侧扫描，根据窗口宽度动态调整扫描范围
-        scan_width = min(300, self.size_config.width // 3)
+        scan_width = min(300, w // 3)
         for i in range(0, scan_width):
             if (
                 pixels[button_right_x - i, button_right_y]
@@ -625,16 +634,27 @@ class WindowManager:
             ):
                 send_btn_bbox[1] = button_right_y - i
 
-        self.logger.info(f"send_btn_bbox: {send_btn_bbox}")
+        self.logger.info(f"send_btn_bbox(局部): {send_btn_bbox}")
+        self.MSG_TOP_X = msg_left_x + ox
+        self.MSG_TOP_Y = msg_top_y_local + oy
         if not self._is_plausible_send_button_bbox(send_btn_bbox):
             self.logger.warning(
                 "发送按钮像素扫描结果不可信（常见为 y1 未扫到仍为 0），改用比例估算"
             )
             send_btn_bbox = self._fallback_send_button_bbox()
+            send_btn_y_local = (send_btn_bbox[1] + send_btn_bbox[3]) // 2 - oy
+        else:
+            send_btn_y_local = (send_btn_bbox[1] + send_btn_bbox[3]) // 2
+            send_btn_bbox = [
+                send_btn_bbox[0] + ox,
+                send_btn_bbox[1] + oy,
+                send_btn_bbox[2] + ox,
+                send_btn_bbox[3] + oy,
+            ]
 
         breakPoint.clear()
         icons = []
-        for i in range(TITLE_BAR_HEIGHT, self.size_config.height // 2):
+        for i in range(TITLE_BAR_HEIGHT, h // 2):
             if pixels[SIDE_BAR_WIDTH // 2, i] != pixels[SIDE_BAR_WIDTH // 2, i - 1]:
                 breakPoint.append(i)
                 if len(icons) == 0:
@@ -659,10 +679,10 @@ class WindowManager:
 
         for idx, i in enumerate(range(0, len(icons), 2)):
             bbox = [
-                0,
-                icons[i],
-                SIDE_BAR_WIDTH,
-                icons[i + 1],
+                ox,
+                icons[i] + oy,
+                SIDE_BAR_WIDTH + ox,
+                icons[i + 1] + oy,
             ]
             # 保存到 ICON_CONFIGS
             name = menu_labels[idx] if idx < len(menu_labels) else f"菜单{idx}"
@@ -682,10 +702,10 @@ class WindowManager:
         all_result.append(
             {
                 "pixel_bbox": [
-                    SIDE_BAR_WIDTH,
-                    TITLE_BAR_HEIGHT,
-                    SIDE_BAR_WIDTH + SESSION_LIST_WIDTH,
-                    self.size_config.height,
+                    SIDE_BAR_WIDTH + ox,
+                    TITLE_BAR_HEIGHT + oy,
+                    SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + ox,
+                    h + oy,
                 ],
                 "content": "会话列表区域",
                 "label": "会话列表区域",
@@ -739,36 +759,26 @@ class WindowManager:
         self._calibrate_position_ratios()
 
         screenshot = self.image_processor.take_screenshot(
-            region=[
-                0,
-                0,
-                self.size_config.width,
-                self.size_config.height,
-            ],
+            region=[ox, oy, rw, rh],
         )
         self.SIDE_BAR_WIDTH = SIDE_BAR_WIDTH
         self.SESSION_LIST_WIDTH = SESSION_LIST_WIDTH
-        self.TITLE_BAR_HEIGHT = TITLE_BAR_HEIGHT
+        self.TITLE_BAR_HEIGHT = msg_top_y_local + oy
 
         self.open_close_sidebar()
         # 先给他打开，然后从底部开始扫像素
         screenshot = self.image_processor.take_screenshot(
-            region=[
-                0,
-                0,
-                self.size_config.width,
-                self.size_config.height,
-            ],
+            region=[ox, oy, rw, rh],
         )
         # 读取图片
         # 获取像素数据
         pixels = screenshot.load()
         # Y从底部发送按钮相同位置开始，X从去掉侧边栏位置开始, 偏移50，防止遇到分割线
         startx = SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + 50
-        starty = get_center_point(send_btn_bbox)[1]
-        for i in range(startx, self.size_config.width):
+        starty = send_btn_y_local
+        for i in range(startx, w):
             if pixels[i, starty] != pixels[i - 1, starty]:
-                self.ROOM_SIDE_BAR_WIDTH = self.size_config.width - i
+                self.ROOM_SIDE_BAR_WIDTH = w - i
                 self.logger.info(f"侧边栏宽度: {self.ROOM_SIDE_BAR_WIDTH}")
                 break
         self.open_close_sidebar(close=True)
@@ -792,7 +802,8 @@ class WindowManager:
             匹配到的位置 (x1, y1, x2, y2) 或 None
         """
         if region is None:
-            region = [0, 0, self.size_config.width, self.size_config.height]
+            ox, oy = self._screenshot_origin
+            region = [ox, oy, self.size_config.width, self.size_config.height]
 
         # 截取搜索区域
         screenshot = self.image_processor.take_screenshot(region=region)
@@ -843,8 +854,9 @@ class WindowManager:
         """
         for attempt in range(max_attempts):
             try:
+                ox, oy = self._screenshot_origin
                 screenshot = self.image_processor.take_screenshot(
-                    region=[0, self.window_margin, self.size_config.width, self.size_config.height]
+                    region=[ox, oy, self.size_config.width, self.size_config.height]
                 )
                 pixels = screenshot.load()
                 width, height = screenshot.size
@@ -869,7 +881,12 @@ class WindowManager:
                             )
                             if button_region:
                                 self.logger.info(f"发送按钮区域: {button_region}")
-                                return button_region
+                                return [
+                                    button_region[0] + ox,
+                                    button_region[1] + oy,
+                                    button_region[2] + ox,
+                                    button_region[3] + oy,
+                                ]
 
                 self.logger.warning(f"第 {attempt + 1} 次尝试未找到发送按钮")
                 time.sleep(0.5)
@@ -966,10 +983,11 @@ class WindowManager:
             session_list_width = self.SESSION_LIST_WIDTH if self.SESSION_LIST_WIDTH > 0 else int(self.size_config.width * 0.2)
             title_bar_height = self.TITLE_BAR_HEIGHT if self.TITLE_BAR_HEIGHT > 0 else int(self.size_config.height * 0.05)
 
-            # 扫描会话列表上方的搜索区域
+            ox, oy = self._screenshot_origin
+            # 扫描会话列表上方的搜索区域（与主窗口截图原点对齐）
             search_region = [
-                side_bar_width,
-                10,
+                ox + side_bar_width,
+                oy + 10,
                 side_bar_width + session_list_width,
                 title_bar_height + 50,  # 扩展高度以覆盖搜索框
             ]
@@ -1040,6 +1058,10 @@ class WindowManager:
         else:
             x, y = 0, 0
 
+        if element == "search_box":
+            oxs, oys = self._screenshot_origin
+            x += oxs
+            y += oys
         return (x, y)
 
     def _calibrate_position_ratios(self) -> None:
@@ -1048,11 +1070,13 @@ class WindowManager:
         这样下次窗口大小变化时，可以使用更准确的估算位置
         """
         try:
+            ox, oy = self._screenshot_origin
+            # 校准相对比例：使用相对窗口截图原点的坐标，避免主窗口离屏时比例失真
             # 校准搜索框位置
             search_pos = self.ICON_CONFIGS.get("search_icon", {}).get("position")
             if search_pos and len(search_pos) == 4:
-                center_x = (search_pos[0] + search_pos[2]) // 2
-                center_y = (search_pos[1] + search_pos[3]) // 2
+                center_x = (search_pos[0] + search_pos[2]) // 2 - ox
+                center_y = (search_pos[1] + search_pos[3]) // 2 - oy
                 x_ratio = center_x / self.size_config.width
                 y_ratio = center_y / self.size_config.height
                 self._position_ratios["search_box"]["x_ratio"] = round(x_ratio, 4)
@@ -1064,9 +1088,11 @@ class WindowManager:
             if send_pos and len(send_pos) == 4 and self._is_plausible_send_button_bbox(
                 send_pos
             ):
+                lx0 = send_pos[0] - ox
+                ly0 = send_pos[1] - oy
                 # 计算相对于右下角的偏移
-                x_offset = self.size_config.width - send_pos[0]
-                y_offset = self.size_config.height - send_pos[1]
+                x_offset = self.size_config.width - lx0
+                y_offset = self.size_config.height - ly0
                 self._position_ratios["send_button"]["x_offset"] = -x_offset
                 self._position_ratios["send_button"]["y_offset"] = -y_offset
                 self.logger.info(f"校准发送按钮偏移: x_offset={-x_offset}, y_offset={-y_offset}")
@@ -1275,21 +1301,63 @@ class WindowManager:
         chat_window = wechat_windows[0]
         if chat_window:
             self._activate_window("微信")
+            desired_w, desired_h = self.size_config.width, self.size_config.height
+            screen_w, screen_h = pyautogui.size()
+            edge = max(
+                int(self.window_margin),
+                int(
+                    self.rpa_config.get(
+                        "init_screen_edge_margin", self.window_margin
+                    )
+                ),
+            )
+            max_w = max(800, screen_w - 2 * edge)
+            max_h = max(500, screen_h - 2 * edge)
+
             if reposition:
-                # 距离屏幕顶部留出安全边距，避免窗口贴顶导致截图边缘重叠
-                chat_window.topleft = (0, self.window_margin)
-            # 这里出现的问题，可能就是宽度有最小值，有可能会比最小值大
-            chat_window.size = (self.size_config.width, self.size_config.height)
-            if (
-                chat_window.size.width < self.size_config.width
-                or chat_window.size.height < self.size_config.height
-            ):
-                self.logger.warn("微信窗口大小不匹配，重新调整大小")
-                return False
+                # 上下左右与屏幕边缘留白，避免贴边时水平扫描只能找到 2～3 个分界点
+                tw = min(desired_w, max_w)
+                th = min(desired_h, max_h)
+                try:
+                    chat_window.restore()
+                except Exception:
+                    pass
+                chat_window.size = (tw, th)
+                time.sleep(0.12)
+                chat_window.topleft = (edge, edge)
+                time.sleep(0.12)
+                self._screenshot_origin = (
+                    int(chat_window.left),
+                    int(chat_window.top),
+                )
+                self.logger.info(
+                    "微信主窗口已避开屏幕边缘: 截图原点=%s 请求尺寸=%sx%s edge=%s",
+                    self._screenshot_origin,
+                    tw,
+                    th,
+                    edge,
+                )
+                if chat_window.size.width < tw or chat_window.size.height < th:
+                    self.logger.warn("微信窗口大小不匹配，重新调整大小")
+                    return False
             else:
-                self.logger.info("微信窗口大小匹配")
-                self.size_config.width = chat_window.size.width
-                self.size_config.height = chat_window.size.height
+                chat_window.size = (desired_w, desired_h)
+                chat_window.topleft = (0, self.window_margin)
+                time.sleep(0.08)
+                self._screenshot_origin = (
+                    int(chat_window.left),
+                    int(chat_window.top),
+                )
+                if (
+                    chat_window.size.width < desired_w
+                    or chat_window.size.height < desired_h
+                ):
+                    self.logger.warn("微信窗口大小不匹配，重新调整大小")
+                    return False
+
+            self.logger.info("微信窗口大小匹配")
+            self.size_config.width = int(chat_window.size.width)
+            self.size_config.height = int(chat_window.size.height)
             return True
         else:
             self.logger.error("微信窗口未找到，请检查微信是否正常运行")
@@ -1328,6 +1396,17 @@ class WindowManager:
                 self.current_window.get("MSG_HEIGHT"),
             ]
         return None
+
+    def _main_search_state_probe_xy(self) -> Tuple[int, int]:
+        """
+        主窗口内用于判断「是否仍处于搜索浮层/白底标题区」的采样点（屏幕绝对坐标）。
+        与 _screenshot_origin 对齐；勿用于独立 SearchContactWindow 模式。
+        """
+        ox, oy = self._screenshot_origin
+        return (
+            ox + self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
+            oy + self.TITLE_BAR_HEIGHT - 5,
+        )
 
     _SEARCH_CATEGORY_KEYS = ("联系人", "群聊", "功能","最常使用")
 
@@ -1394,11 +1473,14 @@ class WindowManager:
                 search_region_width = int(self.size_config.width * 0.45)
             if search_region_height <= 0:
                 search_region_height = int(self.size_config.height * 0.45)
-            region = [0, 0, search_region_width, search_region_height]
+            oxb, oyb = self._screenshot_origin
+            region = [oxb, oyb, search_region_width, search_region_height]
             self.logger.info(
                 "使用实际测量区域截图 OCR: MSG_TOP_X=%s w=%s h=%s",
                 self.MSG_TOP_X, search_region_width, search_region_height,
             )
+
+        used_popup_search = search_window is not None
 
         screenshot = self.image_processor.take_screenshot(region=region)
         if not screenshot:
@@ -1545,11 +1627,14 @@ class WindowManager:
                 "精确匹配到目标联系人: 「%s」bbox=%s，点击: (%d, %d)",
                 r_label, r_bbox, click_x, click_y,
             )
-            pyautogui.click(click_x, click_y)
+            pyautogui.click(click_x, click_y, clicks=1, interval=0)
             time.sleep(self.switch_contact_delay)
+            if used_popup_search:
+                # 独立搜索窗：主窗标题区取色不可靠；禁止 ESC/二次点击，避免双击退化为弹窗或误关主窗
+                self.logger.info("独立搜索窗：仅单次点击联系人进入会话，不再做取色/关层操作")
+                return True, r_label
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.warning("点击后搜索态仍在，切换可能失败")
@@ -1620,12 +1705,15 @@ class WindowManager:
             "OCR 选中分类「%s」(y=%s)，点击位置: (%d, %d)",
             category_label.get("label"), bbox[3], final_x, final_y,
         )
-        pyautogui.click(final_x, final_y)
+        pyautogui.click(final_x, final_y, clicks=1, interval=0)
         time.sleep(self.switch_contact_delay)
 
+        if used_popup_search:
+            self.logger.info("独立搜索窗：仅单次点击分类下结果，不再做取色/ESC")
+            return True, selected_contact_label
+
         color = self.image_processor.get_pixel_color(
-            self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-            self.TITLE_BAR_HEIGHT - 5,
+            *self._main_search_state_probe_xy()
         )
         if color == (255, 255, 255):
             self.logger.warning("点击后搜索态仍在（标题区仍为白），切换可能失败")
@@ -1683,8 +1771,13 @@ class WindowManager:
             time.sleep(self.switch_contact_delay)
 
             # 回车后截图验证联系人名称是否匹配目标
-            verify_region = [self.SIDE_BAR_WIDTH, self.TITLE_BAR_HEIGHT,
-                             self.size_config.width // 3, int(self.size_config.height * 0.06)]
+            oxv, oyv = self._screenshot_origin
+            verify_region = [
+                oxv + self.SIDE_BAR_WIDTH,
+                oyv + self.TITLE_BAR_HEIGHT,
+                self.size_config.width // 3,
+                int(self.size_config.height * 0.06),
+            ]
             verify_screenshot = self.image_processor.take_screenshot(region=verify_region)
             if verify_screenshot:
                 try:
@@ -1715,8 +1808,7 @@ class WindowManager:
                         time.sleep(0.3)
 
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.error("回车兜底后仍处于搜索态，切换失败")
@@ -1725,8 +1817,7 @@ class WindowManager:
             time.sleep(0.5)  # 加长等待
             # 重新检查是否还在搜索态
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.warning("仍处于搜索态，再次尝试 ESC")
@@ -2042,8 +2133,9 @@ class WindowManager:
         args:
             close: 关闭
         """
+        ox, oy = self._screenshot_origin
         color = self.image_processor.get_pixel_color(
-            self.size_config.width - 20, self.size_config.height - 20
+            ox + self.size_config.width - 20, oy + self.size_config.height - 20
         )
         if color == (255, 255, 255):
             CLOSED = False
@@ -2055,7 +2147,8 @@ class WindowManager:
         elif not close and not CLOSED:
             return True
         else:
-            x = self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 50
+            ox, oy = self._screenshot_origin
+            x = ox + self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 50
             y = self.ICON_CONFIGS.get("search_icon").get("position")[1]
             human_like_mouse_move(target_x=x, target_y=y)
             pyautogui.click()
