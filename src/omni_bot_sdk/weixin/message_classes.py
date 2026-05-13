@@ -14,6 +14,34 @@ from omni_bot_sdk.models import UserInfo
 from .parser.util.common import decompress
 
 
+def _contact_username(contact: Any) -> str:
+    """发送者 wxid；兼容 Contact 与 dict（未查到联系人时可能为空 dict）。"""
+    if contact is None:
+        return ""
+    if isinstance(contact, dict):
+        return str(contact.get("username") or "")
+    return str(getattr(contact, "username", "") or "")
+
+
+def _contact_display_name(contact: Any) -> str:
+    """展示名；兼容 Contact 与 dict。"""
+    if contact is None:
+        return ""
+    if isinstance(contact, dict):
+        if not contact:
+            return ""
+        return str(
+            contact.get("display_name")
+            or contact.get("remark")
+            or contact.get("room_remark")
+            or contact.get("nick_name")
+            or contact.get("nickname")
+            or contact.get("username")
+            or ""
+        )
+    return str(getattr(contact, "display_name", "") or "")
+
+
 class DownloadStatus:
     Unknown = -1
     Downloaded = 3
@@ -131,32 +159,24 @@ class Message:
     @property
     def real_sender_name(self) -> str:
         """获取实际发送者名称"""
-        return self.contact.display_name if self.contact else ""
+        return _contact_display_name(self.contact)
 
     @property
     def is_self(self) -> bool:
         """判断消息是否来自自己"""
-        sender_id = ""
+        contact_uname = _contact_username(self.contact)
+        if contact_uname:
+            return self.user_info.account == contact_uname
 
-        # 安全判断：只有存在 content 属性时才执行正则匹配
-        if hasattr(self, 'content') and self.content is not None:
+        sender_id = ""
+        if hasattr(self, "content") and self.content is not None:
             content_sender_match = re.match(r"(wxid_\w+):", self.content)
             if content_sender_match:
                 sender_id = content_sender_match.group(1)
-
-        if self.contact:
+        if sender_id:
             return self.user_info.account == sender_id
-        else:
-            if (
-                self.local_type == MessageType.System
-                or self.local_type == MessageType.Pat
-            ):
-                # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
-                #print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
-                return False
-            else:
-                #print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
-                return False
+
+        return False
 
     @property
     def is_at(self) -> bool:
@@ -214,20 +234,19 @@ class Message:
             message_content = self.message_content
             if isinstance(message_content, bytes):
                 message_content = decompress(message_content)
+            sender_wxid = _contact_username(self.contact)
             if (
                 self.room != None
                 and isinstance(message_content, str)
                 and not self.is_self
                 and self.local_type != MessageType.Pat
                 and self.local_type != MessageType.System
-                and self.contact is not None  # 添加此检查
+                and sender_wxid
             ):
                 # TODO 群聊文字消息格式：<wxid>:<content>, 开头必须是发送人的id+'：'+换行
-                if message_content and message_content.startswith(
-                    self.contact.username
-                ):
+                if message_content and message_content.startswith(sender_wxid):
                     message_content = (
-                        message_content.strip(f"{self.contact.username}:")
+                        message_content.strip(f"{sender_wxid}:")
                         .strip("\u2005")
                         .strip()
                     )
@@ -263,10 +282,7 @@ class Message:
     def target(self) -> str:
         if self.room:
             return self.room.display_name
-        elif self.contact:
-            return self.contact.display_name
-        else:
-            return ""
+        return _contact_display_name(self.contact)
 
     def to_text(self) -> str:
         """将消息转换为文本格式"""
@@ -368,25 +384,23 @@ class QuoteMessage(TextMessage):
                     "quote_type": self.quote_message.local_type,
                 }
             )
+            qdn = _contact_display_name(self.quote_message.contact)
             if self.quote_message.local_type == MessageType.Quote:
                 # 防止递归引用
-                data["quote_text"] = (
-                    f"{self.quote_message.contact.display_name}: {self.quote_message.content}"
-                )
+                data["quote_text"] = f"{qdn}: {self.quote_message.content}"
             else:
-                data["quote_text"] = (
-                    f"{self.quote_message.contact.display_name}: {self.quote_message.to_text()}"
-                )
+                data["quote_text"] = f"{qdn}: {self.quote_message.to_text()}"
         else:
             data.update({"text": self.content})
         return data
 
     def to_text(self):
+        qdn = _contact_display_name(self.quote_message.contact)
         if self.quote_message.local_type == MessageType.Quote:
             # 防止递归引用
-            return f"{self.content}\n引用：{self.quote_message.contact.display_name}: {self.quote_message.content}"
+            return f"{self.content}\n引用：{qdn}: {self.quote_message.content}"
         else:
-            return f"{self.content}\n引用：{self.quote_message.contact.display_name}: {self.quote_message.to_text()}"
+            return f"{self.content}\n引用：{qdn}: {self.quote_message.to_text()}"
 
 
 @dataclass

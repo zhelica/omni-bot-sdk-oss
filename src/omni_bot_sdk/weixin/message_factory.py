@@ -19,6 +19,7 @@ from google.protobuf.json_format import MessageToDict
 from omni_bot_sdk.models import UserInfo
 
 from .message_classes import *
+from .message_classes import _contact_username
 from .parser.audio_parser import parser_audio
 from .parser.emoji_parser import parser_emoji
 from .parser.file_parser import parse_video
@@ -216,7 +217,11 @@ class ImageMessageFactory(MessageFactory):
             user_info=user_info,
         )
 
-        sender_wxid = msg.room.username if msg.is_chatroom else (msg.contact.username if msg.contact else "")
+        sender_wxid = (
+            msg.room.username
+            if msg.is_chatroom
+            else (_contact_username(msg.contact) if msg.contact else "")
+        )
 
         path = db.get_image(
             xml_content=msg.parsed_content,

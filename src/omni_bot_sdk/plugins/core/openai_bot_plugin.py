@@ -13,6 +13,7 @@ from omni_bot_sdk.plugins.interface import (
     MessageType,
     SendTextMessageAction,
 )
+from omni_bot_sdk.weixin.message_classes import _contact_display_name, _contact_username
 
 
 class OpenAIBotPluginConfig(BaseModel):
@@ -106,7 +107,9 @@ class OpenAIBotPlugin(Plugin):
             contact_name = msg.real_sender_id or ""
         else:
             room_name = ""
-            contact_name = msg.contact.display_name if msg.contact else msg.real_sender_id or ""
+            contact_name = _contact_display_name(msg.contact) or str(
+                msg.real_sender_id or ""
+            )
         return f"{room_name}:{contact_name}"
 
     def _get_or_create_context(self, msg) -> ConversationContext:
@@ -178,7 +181,11 @@ class OpenAIBotPlugin(Plugin):
             response = openai.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                user=msg.room.username if msg.is_chatroom else msg.contact.username,
+                user=(
+                    msg.room.username
+                    if msg.is_chatroom
+                    else (_contact_username(msg.contact) or "")
+                ),
             )
             answer = response.choices[0].message.content.strip()
 
@@ -231,11 +238,7 @@ class OpenAIBotPlugin(Plugin):
                     actions=[
                         SendTextMessageAction(
                             content=response,
-                            target=(
-                                message.room.display_name
-                                if message.room
-                                else message.contact.display_name
-                            ),
+                            target=message.target,
                             is_chatroom=message.is_chatroom,
                             at_user_name=None,
                             quote_message=search_text,
