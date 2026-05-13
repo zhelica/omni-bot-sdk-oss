@@ -1397,6 +1397,17 @@ class WindowManager:
             ]
         return None
 
+    def _main_search_state_probe_xy(self) -> Tuple[int, int]:
+        """
+        主窗口内用于判断「是否仍处于搜索浮层/白底标题区」的采样点（屏幕绝对坐标）。
+        与 _screenshot_origin 对齐；勿用于独立 SearchContactWindow 模式。
+        """
+        ox, oy = self._screenshot_origin
+        return (
+            ox + self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
+            oy + self.TITLE_BAR_HEIGHT - 5,
+        )
+
     _SEARCH_CATEGORY_KEYS = ("联系人", "群聊", "功能","最常使用")
 
     @staticmethod
@@ -1462,11 +1473,14 @@ class WindowManager:
                 search_region_width = int(self.size_config.width * 0.45)
             if search_region_height <= 0:
                 search_region_height = int(self.size_config.height * 0.45)
-            region = [0, 0, search_region_width, search_region_height]
+            oxb, oyb = self._screenshot_origin
+            region = [oxb, oyb, search_region_width, search_region_height]
             self.logger.info(
                 "使用实际测量区域截图 OCR: MSG_TOP_X=%s w=%s h=%s",
                 self.MSG_TOP_X, search_region_width, search_region_height,
             )
+
+        used_popup_search = search_window is not None
 
         screenshot = self.image_processor.take_screenshot(region=region)
         if not screenshot:
@@ -1613,11 +1627,14 @@ class WindowManager:
                 "精确匹配到目标联系人: 「%s」bbox=%s，点击: (%d, %d)",
                 r_label, r_bbox, click_x, click_y,
             )
-            pyautogui.click(click_x, click_y)
+            pyautogui.click(click_x, click_y, clicks=1, interval=0)
             time.sleep(self.switch_contact_delay)
+            if used_popup_search:
+                # 独立搜索窗：主窗标题区取色不可靠；禁止 ESC/二次点击，避免双击退化为弹窗或误关主窗
+                self.logger.info("独立搜索窗：仅单次点击联系人进入会话，不再做取色/关层操作")
+                return True, r_label
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.warning("点击后搜索态仍在，切换可能失败")
@@ -1688,12 +1705,15 @@ class WindowManager:
             "OCR 选中分类「%s」(y=%s)，点击位置: (%d, %d)",
             category_label.get("label"), bbox[3], final_x, final_y,
         )
-        pyautogui.click(final_x, final_y)
+        pyautogui.click(final_x, final_y, clicks=1, interval=0)
         time.sleep(self.switch_contact_delay)
 
+        if used_popup_search:
+            self.logger.info("独立搜索窗：仅单次点击分类下结果，不再做取色/ESC")
+            return True, selected_contact_label
+
         color = self.image_processor.get_pixel_color(
-            self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-            self.TITLE_BAR_HEIGHT - 5,
+            *self._main_search_state_probe_xy()
         )
         if color == (255, 255, 255):
             self.logger.warning("点击后搜索态仍在（标题区仍为白），切换可能失败")
@@ -1751,8 +1771,13 @@ class WindowManager:
             time.sleep(self.switch_contact_delay)
 
             # 回车后截图验证联系人名称是否匹配目标
-            verify_region = [self.SIDE_BAR_WIDTH, self.TITLE_BAR_HEIGHT,
-                             self.size_config.width // 3, int(self.size_config.height * 0.06)]
+            oxv, oyv = self._screenshot_origin
+            verify_region = [
+                oxv + self.SIDE_BAR_WIDTH,
+                oyv + self.TITLE_BAR_HEIGHT,
+                self.size_config.width // 3,
+                int(self.size_config.height * 0.06),
+            ]
             verify_screenshot = self.image_processor.take_screenshot(region=verify_region)
             if verify_screenshot:
                 try:
@@ -1783,8 +1808,7 @@ class WindowManager:
                         time.sleep(0.3)
 
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.error("回车兜底后仍处于搜索态，切换失败")
@@ -1793,8 +1817,7 @@ class WindowManager:
             time.sleep(0.5)  # 加长等待
             # 重新检查是否还在搜索态
             color = self.image_processor.get_pixel_color(
-                self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
-                self.TITLE_BAR_HEIGHT - 5,
+                *self._main_search_state_probe_xy()
             )
             if color == (255, 255, 255):
                 self.logger.warning("仍处于搜索态，再次尝试 ESC")
