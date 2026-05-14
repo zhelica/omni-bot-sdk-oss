@@ -89,8 +89,6 @@ rpa:
     min_confidence: 0.5  # 最小置信度
     remote_url: http://example.com/ocr  # 远程OCR服务地址
     use_remote: false  # 是否使用远程OCR
-    # 本地 rapidocr/onnxruntime 加载失败时自动改用 remote_url（需地址可达，打包环境 DLL 失败时常用）
-    fallback_to_remote_on_local_fail: false
   room_action_offset:
   - 0
   - -30
