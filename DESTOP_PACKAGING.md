@@ -157,6 +157,26 @@ hiddenimports += [
 ]
 ```
 
+### Q2b: 源码运行正常，exe 里 `WinError 1114` / `c10.dll` / `onnxruntime_pybind11_state` 加载失败（路径含 `_MEI`）
+
+**原因**: 旧版 **onefile** 单 exe 会把依赖解压到临时目录 `Temp\_MEI*`；PyTorch、ONNX Runtime 等大量原生 DLL 在这种模式下极易初始化失败。
+
+**解决方案**（本仓库已采用）:
+
+1. 使用 **onedir** 输出：`dist/omni-bot-win-amd64/` 目录内含 `omni-bot.exe` 与同目录 DLL，**整目录分发**，不要只拷单个 exe。
+2. `omni_bot_sdk.spec` 中已增加 `collect_all("torch")`，与 `ultralytics` / `onnxruntime` 一并收集。
+3. 若仍失败：安装 [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist)（x64），并确认杀毒软件未拦截 exe 目录下的 DLL。
+
+### Q2c: exe 里 OCR 一直返回空列表 `[]`、耗时约 0 秒
+
+**常见原因**: 打包环境下 **onnxruntime 仍未加载**，`local_ocr` 为 `None`，且未配置可用的 **远程 OCR**。
+
+**处理方式**:
+
+1. 在 `config.yaml` 的 `rpa.ocr` 中填写可访问的 **`remote_url`**；打包（`sys.frozen`）时若本地未就绪，程序会 **自动尝试远程**（可用 `try_remote_on_local_miss: false` 关闭）。
+2. 或设置 **`use_remote: true`** 强制全程走远程。
+3. 根本修复仍是 **onedir 打包 + VC++ 运行库**，使本地 RapidOCR 能加载。
+
 ### Q3: 打包后体积太大（>500MB）
 
 **正常现象**: omni-bot-sdk 依赖 YOLO (Ultralytics)、ONNX Runtime、Protobuf 等大型库，体积较大是不可避免的。
