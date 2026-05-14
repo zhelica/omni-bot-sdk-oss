@@ -473,44 +473,20 @@ class WindowManager:
         clustered = scan_horizontal(pixels, [5, 10, 15, 20, 25], x_scan_max)
         self.logger.info(f"水平边界扫描（策略1顶部行）: {clustered}")
 
-        # ---------- 策略2：扫描中间偏上 + 中段多行（备用，避开仅扫顶部时列分界不明显的情况） ----------
+        # ---------- 策略2：扫描中间行（备用） ----------
         if len(clustered) < 4:
-            mid_y = [
-                h // 4,
-                h // 4 + 5,
-                h // 4 + 10,
-                h // 4 + 15,
-                h // 4 + 20,
-                int(h * 0.38),
-                int(h * 0.38) + 5,
-                int(h * 0.38) + 10,
-                int(h * 0.52),
-                int(h * 0.52) + 5,
-                int(h * 0.52) + 10,
-            ]
-            mid_y = sorted({min(max(10, y), h - 6) for y in mid_y})
+            mid_y = [h // 4, h // 4 + 5, h // 4 + 10, h // 4 + 15, h // 4 + 20]
             clustered2 = scan_horizontal(pixels, mid_y, x_scan_max)
             self.logger.info(f"水平边界扫描（策略2中间行）: {clustered2}")
             if len(clustered2) >= 4:
                 clustered = clustered2
 
-        # ---------- 策略3：多纵向带采样（兜底；高窗口时仅扫顶部 200px 会漏掉会话区列分界） ----------
+        # ---------- 策略3：全屏随机采样边界检测（兜底） ----------
         if len(clustered) < 4:
-            self.logger.warning("策略1/2均不足，尝试策略3：多带水平扫描")
+            self.logger.warning("策略1/2均不足，尝试策略3：全屏边缘扫描")
             all_bp: List[int] = []
-            bottom_safe = min(100, max(48, h // 10))  # 底边内缩，减少任务栏/圆角区混入
-            scan_rows: List[int] = []
+            # 在宽度范围内多行采样
             for j in range(0, min(h, 200), 10):
-                scan_rows.append(j)
-            hm = h // 2
-            for j in range(max(10, hm - 60), min(h - bottom_safe, hm + 60), 8):
-                scan_rows.append(j)
-            y_low = max(10, h // 3)
-            y_hi = max(y_low + 20, h - bottom_safe)
-            for j in range(y_low, y_hi, 12):
-                scan_rows.append(j)
-            scan_rows = sorted({min(y, h - bottom_safe - 1) for y in scan_rows if y >= 10})
-            for j in scan_rows:
                 prev = None
                 for i in range(10, x_scan_max):
                     if prev is None:
@@ -520,12 +496,10 @@ class WindowManager:
                     if cur != prev:
                         all_bp.append(i)
                         prev = cur
-                        if len(all_bp) >= 80:
+                        if len(all_bp) >= 20:
                             break
-                    if len(all_bp) >= 80:
+                    if len(all_bp) >= 20:
                         break
-                if len(all_bp) >= 80:
-                    break
             clustered3 = cluster_points(all_bp)
             self.logger.info(f"水平边界扫描（策略3全屏）: {clustered3}")
             if len(clustered3) >= 4:
@@ -1337,14 +1311,8 @@ class WindowManager:
                     )
                 ),
             )
-            # 底部单独留边：任务栏/「任务状态栏」会吃掉屏幕下沿，对称 edge 时窗口底易贴任务栏导致截图里混入任务栏像素，水平扫描凑不齐 4 个分界点
-            edge_bottom = int(
-                self.rpa_config.get(
-                    "init_screen_bottom_margin", max(edge, 96)
-                )
-            )
             max_w = max(800, screen_w - 2 * edge)
-            max_h = max(500, screen_h - edge - edge_bottom)
+            max_h = max(500, screen_h - 2 * edge)
 
             if reposition:
                 # 上下左右与屏幕边缘留白，避免贴边时水平扫描只能找到 2～3 个分界点
@@ -1363,13 +1331,11 @@ class WindowManager:
                     int(chat_window.top),
                 )
                 self.logger.info(
-                    "微信主窗口已避开屏幕边缘: 截图原点=%s 请求尺寸=%sx%s "
-                    "edge(顶/左/右)=%s edge_bottom=%s",
+                    "微信主窗口已避开屏幕边缘: 截图原点=%s 请求尺寸=%sx%s edge=%s",
                     self._screenshot_origin,
                     tw,
                     th,
                     edge,
-                    edge_bottom,
                 )
                 if chat_window.size.width < tw or chat_window.size.height < th:
                     self.logger.warn("微信窗口大小不匹配，重新调整大小")
