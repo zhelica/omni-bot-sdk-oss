@@ -1,7 +1,6 @@
 import re
 import time
 from collections import OrderedDict
-from pathlib import Path
 from typing import Optional
 
 import openai
@@ -14,16 +13,6 @@ from omni_bot_sdk.plugins.interface import (
     MessageType,
     SendTextMessageAction,
 )
-from omni_bot_sdk.weixin.message_classes import _contact_display_name, _contact_username
-
-
-def _safe_str(value) -> str:
-    """保证写入 prompt / API 的占位符与消息正文均为 str（避免 DB 整型 id 等导致 str.replace 报错）。"""
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
 
 
 class OpenAIBotPluginConfig(BaseModel):
@@ -113,13 +102,11 @@ class OpenAIBotPlugin(Plugin):
     def _get_context_key(self, msg) -> str:
         """生成会话上下文 key：群聊用 room_nickname，私聊用 contact_nickname"""
         if msg.is_chatroom:
-            room_name = _safe_str(msg.room.display_name if msg.room else "")
-            contact_name = _safe_str(msg.real_sender_id)
+            room_name = msg.room.display_name if msg.room else ""
+            contact_name = msg.real_sender_id or ""
         else:
             room_name = ""
-            contact_name = _contact_display_name(msg.contact) or _safe_str(
-                msg.real_sender_id
-            )
+            contact_name = msg.contact.display_name if msg.contact else msg.real_sender_id or ""
         return f"{room_name}:{contact_name}"
 
     def _get_or_create_context(self, msg) -> ConversationContext:
@@ -128,24 +115,19 @@ class OpenAIBotPlugin(Plugin):
             self._conversation_contexts[key] = ConversationContext(max_history=20)
         return self._conversation_contexts[key]
 
-    def _message_plain_for_ai(self, msg) -> str:
-        """
-        用户侧正文，与 openai_bot_plugin_bak 一致只用 parsed_content。
-        引用消息在工厂里 content 固定为 \"\"，必须用 parsed_content 才有字。
-        """
-        pc = msg.parsed_content
-        if isinstance(pc, bytes):
-            pc = pc.decode("utf-8", errors="replace")
-        else:
-            pc = pc or ""
-        nick = _safe_str(self.user.nickname)
-        return pc.replace(f"@{nick}", "").replace("\u2005", " ").strip()
-
     def get_ai_response(self, msg) -> Optional[str]:
         if not self.enabled:
             return None
         try:
-            content = self._message_plain_for_ai(msg)
+            if msg.local_type == MessageType.Quote:
+                content = msg.content
+            else:
+                content = msg.content
+                # content = (
+                #     msg.parsed_content.replace(f"@{self.user.nickname}", "")
+                #     .replace("\u2005", "")
+                #     .strip()
+                # )
 
             time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
@@ -162,76 +144,66 @@ class OpenAIBotPlugin(Plugin):
 
             # 构建 system_prompt
             system_prompt = self.prompt
-            system_prompt = system_prompt.replace(
-                "{{chat_history}}", _safe_str(chat_history or "")
-            )
+            system_prompt = system_prompt.replace("{{chat_history}}", chat_history or "")
             system_prompt = system_prompt.replace("{{time_now}}", time_now)
+            system_prompt = system_prompt.replace("{{self_nickname}}", self.user.nickname)
             system_prompt = system_prompt.replace(
-                "{{self_nickname}}", _safe_str(self.user.nickname)
-            )
-            system_prompt = system_prompt.replace(
-                "{{room_nickname}}",
-                _safe_str(msg.room.display_name if msg.room else ""),
+                "{{room_nickname}}", msg.room.display_name if msg.room else ""
             )
 
-            # 查询发送者昵称（群聊里 real_sender_id 常为整型，不能与 wxid 字符串直接比较）
+            # 查询发送者昵称
             sender_id = msg.real_sender_id
-            for probe in (_safe_str(getattr(msg, "content", "")), content):
-                if not probe:
-                    continue
-                content_sender_match = re.match(r"(wxid_\w+):", probe)
-                if content_sender_match:
-                    sender_id = content_sender_match.group(1)
-                    break
-
-            contact_nickname = ""
-            sender_wxid: Optional[str] = None
-            if isinstance(sender_id, str) and sender_id:
-                sender_wxid = sender_id
-            elif isinstance(sender_id, int) and sender_id:
-                db_path = getattr(msg, "message_db_path", None)
-                row_contact = self.bot.db.get_contact_by_sender_id(
-                    sender_id, Path(db_path) if db_path else None
-                )
-                if row_contact:
-                    sender_wxid = row_contact.username
-                    contact_nickname = _safe_str(row_contact.display_name)
-
-            if sender_wxid:
+            content_sender_match = re.match(r"(wxid_\w+):", msg.content)
+            if content_sender_match:
+                sender_id = content_sender_match.group(1)
+            contact_nickname = sender_id or ""
+            if sender_id:
                 if msg.room:
                     member_list = self.bot.db.get_room_member_list(msg.room.username)
                     for member in member_list:
-                        if member.username == sender_wxid:
-                            contact_nickname = _safe_str(member.display_name)
+                        if member.username == sender_id:
+                            contact_nickname = member.display_name
                             break
-                elif not contact_nickname:
-                    contact = self.bot.db.get_contact_by_username(sender_wxid)
+                else:
+                    contact = self.bot.db.get_contact_by_username(sender_id)
                     if contact:
-                        contact_nickname = _safe_str(contact.display_name)
+                        contact_nickname = contact.display_name
 
-            if not contact_nickname and sender_wxid:
-                contact_nickname = sender_wxid
-
-            system_prompt = system_prompt.replace(
-                "{{contact_nickname}}", _safe_str(contact_nickname)
-            )
+            system_prompt = system_prompt.replace("{{contact_nickname}}", contact_nickname)
             self.logger.info(f"system_prompt: {system_prompt}")
             self.logger.info(f"会话上下文 key={context_key}, 当前历史条数={len(ctx._history)}, 内容={chat_history}")
 
             messages = []
             messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": _safe_str(content)})
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                user=(
-                    msg.room.username
-                    if msg.is_chatroom
-                    else (_contact_username(msg.contact) or "")
-                ),
-            )
-            raw = response.choices[0].message.content
-            answer = _safe_str(raw).strip()
+            messages.append({"role": "user", "content": content})
+
+            # 通过 WebSocket 发送消息给外部 AI 服务
+            import uuid
+            room_nickname = msg.room.display_name if msg.room else ""
+            event_id = str(uuid.uuid4())
+            ws_message = {
+                "event_id": event_id,
+                "event": {
+                    "msg_type": 1,  # 1-文本消息
+                    "room_id": msg.room.username if msg.is_chatroom else "",
+                    "room_nickname": room_nickname,
+                    "contact_nickname": contact_nickname,
+                    "self_nickname": self.user.nickname,
+                    "chat_history": chat_history,
+                    "time_now": time_now,
+                    "server_id": server_id,
+                    "content": content,
+                    "sender_id": sender_id,
+                    "guid": "123"
+                }
+            }
+
+            if self.bot.websocket_service:
+                self.bot.websocket_service.broadcast(ws_message)
+                self.logger.info(f"已通过 WebSocket 发送消息: {ws_message}")
+
+            # 等待外部 AI 服务的响应（暂时返回空，由外部服务通过其他方式回复）
+            answer = ""
 
             # 把 AI 回复也加入历史
             assistant_id = f"assistant_{time.time()}"
@@ -250,8 +222,8 @@ class OpenAIBotPlugin(Plugin):
             return
         message = plusginExcuteContext.get_message()
         if (
-            message.local_type != MessageType.Text
-            and message.local_type != MessageType.Quote
+                message.local_type != MessageType.Text
+                and message.local_type != MessageType.Quote
         ):
             return
         context = plusginExcuteContext.get_context()
@@ -270,10 +242,15 @@ class OpenAIBotPlugin(Plugin):
                 else:
                     return
             response = self.get_ai_response(msg=message)
-            if response is None or not str(response).strip():
-                self.logger.warning("AI 无有效回复，跳过发送")
+            if not response:
+                # 消息已通过 WebSocket 发送，等待外部 AI 服务响应
+                self.logger.info("消息已通过 WebSocket 发送，等待外部 AI 响应")
                 return
-            search_text = self._message_plain_for_ai(message)
+            search_text = message.content
+            if message.local_type == MessageType.Quote:
+                search_text = message.content
+            else:
+                search_text = f"{message.parsed_content.replace('\u2005', ' ').strip()}"
             plusginExcuteContext.add_response(
                 PluginExcuteResponse(
                     message=message,
@@ -282,7 +259,11 @@ class OpenAIBotPlugin(Plugin):
                     actions=[
                         SendTextMessageAction(
                             content=response,
-                            target=message.target,
+                            target=(
+                                message.room.display_name
+                                if message.room
+                                else message.contact.display_name
+                            ),
                             is_chatroom=message.is_chatroom,
                             at_user_name=None,
                             quote_message=search_text,
