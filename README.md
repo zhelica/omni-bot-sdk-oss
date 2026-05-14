@@ -78,6 +78,9 @@ pip install -e .
 # 3. 运行示例代码
 cd examples/simple-bot
 python bot.py
+
+# 4.项目打包
+python build_exe.py --clean
 ```
 
 ### 3. 启动 MQTT 服务
