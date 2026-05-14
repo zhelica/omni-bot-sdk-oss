@@ -13,8 +13,7 @@ import cv2
 import numpy as np
 import requests
 from PIL import Image
-from rapidocr import RapidOCR
-
+# rapidocr 依赖 onnxruntime，打包环境 DLL 失败时不应在 import 阶段加载
 
 class OCRProcessor:
     """
@@ -29,12 +28,14 @@ class OCRProcessor:
             ocr_config (dict): OCR 配置。
         """
         ocr_config = ocr_config or {}
+        self._ocr_config = dict(ocr_config)
         self.use_remote = ocr_config.get("use_remote", False)
         self.remote_url = ocr_config.get("remote_url", "http://192.168.2.192:9003/ocr")
         self.min_confidence = ocr_config.get("min_confidence", 0.5)
         self.merge_threshold = ocr_config.get("merge_threshold", 5.0)
         self.local_ocr = None
         self.logger = logging.getLogger(__name__)
+        self._local_skip_warned = False
 
     def setup(self):
         """
@@ -42,8 +43,46 @@ class OCRProcessor:
         """
         if self.use_remote:
             self.local_ocr = None
-        else:
+            self.logger.info("OCR 使用远程模式: %s", self.remote_url)
+            return
+        _lm = None
+        _orig_init = None
+        try:
+            import rapidocr.utils.logger as _lm
+
+            _orig_init = _lm.Logger.__init__
+
+            def _quiet_logger_init(self, log_level=logging.WARNING, logger_name=None):
+                _orig_init(self, log_level, logger_name)
+
+            _lm.Logger.__init__ = _quiet_logger_init
+            from rapidocr import RapidOCR
+
             self.local_ocr = RapidOCR()
+        except (OSError, ImportError) as e:
+            verb = self.logger.isEnabledFor(logging.DEBUG)
+            self.logger.warning(
+                "本地 OCR（rapidocr / onnxruntime）加载失败: %s。"
+                "可在 rpa.ocr 中设置 use_remote: true，"
+                "或设置 fallback_to_remote_on_local_fail: true 并在 remote_url 填写可用服务。",
+                e,
+                exc_info=verb,
+            )
+            self.local_ocr = None
+            if self._ocr_config.get("fallback_to_remote_on_local_fail") and (
+                self.remote_url or ""
+            ).strip():
+                self.use_remote = True
+                self.logger.warning(
+                    "已按 fallback_to_remote_on_local_fail 切换为远程 OCR: %s",
+                    self.remote_url,
+                )
+        except Exception as e:
+            self.logger.error("本地 OCR 初始化失败: %s", e, exc_info=True)
+            self.local_ocr = None
+        finally:
+            if _lm is not None and _orig_init is not None:
+                _lm.Logger.__init__ = _orig_init
 
     def process_image(
         self, image_path: str = None, image: Image.Image = None
@@ -82,6 +121,16 @@ class OCRProcessor:
             List[Dict]: OCR 结果列表。
         """
         try:
+            if self.local_ocr is None and not self.use_remote:
+                if not self._local_skip_warned:
+                    self._local_skip_warned = True
+                    self.logger.warning(
+                        "本地 OCR 未初始化，跳过识别（请配置 rpa.ocr.use_remote 或 "
+                        "fallback_to_remote_on_local_fail + remote_url）"
+                    )
+                else:
+                    self.logger.debug("本地 OCR 未初始化，跳过识别")
+                return []
             if image_path:
                 ocr_result = self.local_ocr(image_path)
             else:

@@ -7,13 +7,11 @@ import logging
 import os
 from pathlib import Path
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import mss
 import mss.tools
-import torch
 from PIL import Image, ImageDraw, ImageFont
-from ultralytics import YOLO
 from omni_bot_sdk.yolo.get_model_path import get_model_path
 
 
@@ -29,7 +27,8 @@ class ImageProcessor:
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model_path = get_model_path("msg_rec.pt")
-        self.yolo: Optional[YOLO] = None
+        # torch/ultralytics 仅在 setup() 中加载，避免打包 exe 启动时即加载 c10.dll 失败导致进程退出
+        self.yolo: Optional[Any] = None
         self.box_color_dict = {}
         self._init_color_config()
 
@@ -39,14 +38,25 @@ class ImageProcessor:
         """
         self.logger.info(f"加载 YOLO 模型: {self.model_path}")
         try:
+            import torch
+            from ultralytics import YOLO
+
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = YOLO(self.model_path)
             model.to(device)
             self.yolo = model
             self.logger.info(f"YOLO 模型加载成功，设备: '{device}'。")
+        except OSError as e:
+            # WinError 1114 等：打包环境 VC++ 运行库、DLL 冲突或 onefile 解压路径问题
+            self.logger.warning(
+                "YOLO/PyTorch 本地库加载失败（进程仍可继续，检测功能将不可用）: %s",
+                e,
+                exc_info=self.logger.isEnabledFor(logging.DEBUG),
+            )
+            self.yolo = None
         except Exception as e:
             self.logger.error(f"YOLO 模型加载失败: {e}", exc_info=True)
-            raise
+            self.yolo = None
 
     def _init_color_config(self):
         """
