@@ -41,7 +41,6 @@ dependencies = [
     "rapidocr==3.2.0",
     "python-Levenshtein==0.27.1",
     "watchfiles==1.1.0",
-    "onnxruntime==1.22.0",
     "ruamel.yaml==0.18.14",
     "pydantic==2.11.7",
     "py-machineid==0.8.0",

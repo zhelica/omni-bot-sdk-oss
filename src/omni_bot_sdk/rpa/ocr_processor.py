@@ -14,6 +14,7 @@ import numpy as np
 import requests
 from PIL import Image
 from rapidocr import RapidOCR
+from rapidocr.utils.typings import EngineType
 
 
 class OCRProcessor:
@@ -43,7 +44,15 @@ class OCRProcessor:
         if self.use_remote:
             self.local_ocr = None
         else:
-            self.local_ocr = RapidOCR()
+            # Use PyTorch inference (same stack as YOLO). ONNX Runtime in a PyInstaller
+            # one-file build often fails to load after PyTorch (OpenMP / native DLL clash).
+            self.local_ocr = RapidOCR(
+                params={
+                    "Det.engine_type": EngineType.TORCH,
+                    "Cls.engine_type": EngineType.TORCH,
+                    "Rec.engine_type": EngineType.TORCH,
+                }
+            )
 
     def process_image(
         self, image_path: str = None, image: Image.Image = None
