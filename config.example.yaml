@@ -74,6 +74,12 @@ plugins:
     openai_model: deepseek-chat  # 使用的模型名
     prompt: 你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} 
       你的昵称：{{self_nickname}} 群昵称：{{room_nickname}} 消息来自于：{{contact_nickname}}
+  # 整点「领导原话」定时发群（上午 9–11、下午 14–17 每个整点随机一句；默认济南人才交流群）
+  scheduled-leader-quotes-plugin:
+    enabled: false
+    target_chat_name: 济南人才交流群
+    morning_hours: [9, 10, 11]
+    afternoon_hours: [14, 15, 16, 17]
   # 自发消息插件
   self-msg-plugin:
     enabled: true

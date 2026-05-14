@@ -14,6 +14,8 @@ hiddenimports = collect_submodules("omni_bot_sdk.plugins")
 hiddenimports += [
     "omni_bot_sdk.plugins.core.self_msg_plugin",
     "omni_bot_sdk.plugins.core.openai_bot_plugin",
+    "omni_bot_sdk.plugins.core.scheduled_leader_quotes_plugin",
+    "omni_bot_sdk.plugins.core.leader_quotes_phrases",
     "omni_bot_sdk.plugins.core.block_empty_room_plugin",
     "omni_bot_sdk.plugins.core.image_aes_plugin",
     "omni_bot_sdk.plugins.core.message_recall_plugin",

@@ -75,4 +75,5 @@ per_rule_ignores = { "DEP003" = ["omni_bot_sdk"] }
 self-msg-plugin = "omni_bot_sdk.plugins.core.self_msg_plugin:SelfMsgPlugin"
 block-empty-room-plugin = "omni_bot_sdk.plugins.core.block_empty_room_plugin:BlockEmptyRoomPlugin"
 openai-bot-plugin = "omni_bot_sdk.plugins.core.openai_bot_plugin:OpenAIBotPlugin"
+scheduled-leader-quotes-plugin = "omni_bot_sdk.plugins.core.scheduled_leader_quotes_plugin:ScheduledLeaderQuotesPlugin"
 image-aes-plugin = "omni_bot_sdk.plugins.core.image_aes_plugin:ImageAesPlugin"
