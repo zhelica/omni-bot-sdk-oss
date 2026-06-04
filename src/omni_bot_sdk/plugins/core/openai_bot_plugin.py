@@ -1,4 +1,5 @@
 import re
+import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -6,6 +7,14 @@ from typing import Optional
 
 import openai
 from pydantic import BaseModel
+from omni_bot_sdk.plugins.core.gongkao_xingce_client import (
+    DEFAULT_API_BASE,
+    GongkaoXingceClient,
+    format_answer_message,
+    format_question_message,
+    is_draw_request,
+    parse_draw_category,
+)
 from omni_bot_sdk.plugins.interface import (
     Bot,
     Plugin,
@@ -46,6 +55,11 @@ class OpenAIBotPluginConfig(BaseModel):
         "你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} "
         "你的昵称：{{self_nickname}} 群昵称：{{room_nickname}} 用户昵称是：{{contact_nickname}}，你可以称呼他的昵称"
     )
+    gongkao_api_base_url: str = DEFAULT_API_BASE
+    gongkao_api_timeout_seconds: float = 15.0
+    draw_answer_delay_seconds: int = 60
+    draw_question_prefix: str = "考公练题\n"
+    draw_answer_prefix: str = "参考答案\n"
 
 
 class ConversationContext:
@@ -109,6 +123,10 @@ class OpenAIBotPlugin(Plugin):
         openai.base_url = self.base_url
         # 会话上下文，按 room_nickname:contact_nickname 索引
         self._conversation_contexts: dict[str, ConversationContext] = {}
+        self._gongkao_client = GongkaoXingceClient(
+            api_base_url=self.plugin_config.gongkao_api_base_url,
+            timeout=self.plugin_config.gongkao_api_timeout_seconds,
+        )
 
     def _get_context_key(self, msg) -> str:
         """生成会话上下文 key：群聊用 room_nickname，私聊用 contact_nickname"""
@@ -140,6 +158,49 @@ class OpenAIBotPlugin(Plugin):
             pc = pc or ""
         nick = _safe_str(self.user.nickname)
         return pc.replace(f"@{nick}", "").replace("\u2005", " ").strip()
+
+    def _send_draw_answer_delayed(self, message, question_id: int) -> None:
+        """延迟后按 id 查询解析并发送到当前会话。"""
+        delay = float(self.plugin_config.draw_answer_delay_seconds)
+        if self._interruptible_wait(delay):
+            return
+        detail = self._gongkao_client.fetch_by_id(question_id)
+        if detail is None:
+            self.logger.warning("抽题答案查询失败 id=%s", question_id)
+            return
+        text = format_answer_message(detail, self.plugin_config.draw_answer_prefix)
+        self.add_rpa_action(
+            SendTextMessageAction(
+                content=text,
+                target=message.target,
+                is_chatroom=message.is_chatroom,
+                at_user_name=None,
+                quote_message=None,
+                random_at_quote=False,
+            )
+        )
+        self.logger.info("抽题答案已入队 id=%s", question_id)
+
+    def _interruptible_wait(self, seconds: float) -> bool:
+        deadline = time.monotonic() + max(0.0, seconds)
+        while time.monotonic() < deadline:
+            time.sleep(min(1.0, deadline - time.monotonic()))
+        return False
+
+    def _handle_draw_question(self, message, content: str) -> Optional[str]:
+        category = parse_draw_category(content)
+        question = self._gongkao_client.fetch_random(category=category)
+        if question is None:
+            return "抽题失败，请稍后再试。"
+        threading.Thread(
+            target=self._send_draw_answer_delayed,
+            args=(message, question.id),
+            name=f"DrawAnswer-{question.id}",
+            daemon=True,
+        ).start()
+        return format_question_message(
+            question, self.plugin_config.draw_question_prefix
+        )
 
     def get_ai_response(self, msg) -> Optional[str]:
         if not self.enabled:
@@ -269,7 +330,11 @@ class OpenAIBotPlugin(Plugin):
                     pass
                 else:
                     return
-            response = self.get_ai_response(msg=message)
+            content = self._message_plain_for_ai(message)
+            if is_draw_request(content):
+                response = self._handle_draw_question(message, content)
+            else:
+                response = self.get_ai_response(msg=message)
             if response is None or not str(response).strip():
                 self.logger.warning("AI 无有效回复，跳过发送")
                 return

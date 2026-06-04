@@ -73,7 +73,7 @@ class Bot:
         # 用户服务与用户信息初始化
         self.user_service: UserService = UserService(self.config.get("dbkey"))
         self.user_info: UserInfo = self.user_service.get_user_info()
-        allow_versions = ["4.1.8.107","4.1.7.59"]
+        allow_versions = ["4.1.8.107","4.1.7.59","4.1.9.57"]
         if self.user_info.version not in allow_versions:
             self.logger.error(
                 f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"

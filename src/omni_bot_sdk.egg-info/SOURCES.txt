@@ -9,6 +9,7 @@ publish.py
 pyproject.toml
 examples/message_recall_example.py
 examples/simple-bot/bot.py
+scripts/generate_civil_service_bank.py
 scripts/update_version_and_tag.py
 src/omni_bot_sdk/__init__.py
 src/omni_bot_sdk/__main__.py
@@ -38,12 +39,16 @@ src/omni_bot_sdk/plugins/interface.py
 src/omni_bot_sdk/plugins/plugin_manager.py
 src/omni_bot_sdk/plugins/core/__init__.py
 src/omni_bot_sdk/plugins/core/block_empty_room_plugin.py
+src/omni_bot_sdk/plugins/core/civil_service_question_bank.py
+src/omni_bot_sdk/plugins/core/gongkao_xingce_client.py
 src/omni_bot_sdk/plugins/core/image_aes_plugin.py
 src/omni_bot_sdk/plugins/core/leader_quotes_phrases.py
 src/omni_bot_sdk/plugins/core/message_recall_plugin.py
 src/omni_bot_sdk/plugins/core/openai_bot_plugin.py
 src/omni_bot_sdk/plugins/core/openai_bot_plugin_bak.py
 src/omni_bot_sdk/plugins/core/plugin_interface.py
+src/omni_bot_sdk/plugins/core/scheduled_broadcast.py
+src/omni_bot_sdk/plugins/core/scheduled_civil_service_quiz_plugin.py
 src/omni_bot_sdk/plugins/core/scheduled_leader_quotes_plugin.py
 src/omni_bot_sdk/plugins/core/self_msg_plugin.py
 src/omni_bot_sdk/rpa/__init__.py

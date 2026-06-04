@@ -1,5 +1,5 @@
 """
-整点向指定群聊随机发送「领导原话」类话术（可配置时段与群名）。
+在指定时段内向群聊随机发送话术（可配置间隔分钟、内容前缀与群名）。
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from omni_bot_sdk.plugins.core.plugin_interface import (
     PluginExcuteContext,
 )
 from omni_bot_sdk.plugins.core.leader_quotes_phrases import default_leader_phrases
+from omni_bot_sdk.plugins.core.scheduled_broadcast import is_scheduled_broadcast_mode
 from omni_bot_sdk.rpa.action_handlers import SendTextMessageAction
 
 
@@ -28,6 +29,8 @@ class ScheduledLeaderQuotesPluginConfig(BaseModel):
     target_chat_name: str = "济南人才交流群"
     morning_hours: List[int] = Field(default_factory=lambda: [9, 10, 11])
     afternoon_hours: List[int] = Field(default_factory=lambda: [14, 15, 16, 17])
+    interval_minutes: int = 60
+    content_prefix: str = ""
     phrases: Optional[List[str]] = None
 
     @field_validator("morning_hours", "afternoon_hours")
@@ -38,13 +41,33 @@ class ScheduledLeaderQuotesPluginConfig(BaseModel):
                 raise ValueError("hour must be 0-23")
         return v
 
+    @field_validator("interval_minutes")
+    @classmethod
+    def _interval_minutes_valid(cls, v: int) -> int:
+        if v < 1 or v > 60 or 60 % v != 0:
+            raise ValueError("interval_minutes must divide 60 evenly (1-60)")
+        return v
+
     def merged_hours(self) -> List[int]:
         return sorted(set(self.morning_hours + self.afternoon_hours))
+
+    def broadcast_minutes(self) -> List[int]:
+        return list(range(0, 60, self.interval_minutes))
+
+    def format_message(self, phrase: str) -> str:
+        prefix = self.content_prefix
+        if not prefix:
+            return phrase
+        if prefix.endswith("：") or prefix.endswith(":"):
+            prefix = prefix[:-1] + "\n"
+        if phrase.startswith(prefix):
+            return phrase
+        return prefix + phrase
 
 
 class ScheduledLeaderQuotesPlugin(Plugin):
     """
-    在配置的时段内，每个整点随机选一句发送到目标群（群显示名需与 window_manager 切换会话一致）。
+    在配置的时段内，按 interval_minutes 间隔随机选一句发送到目标群（群显示名需与 window_manager 切换会话一致）。
     """
 
     priority = 50
@@ -55,14 +78,17 @@ class ScheduledLeaderQuotesPlugin(Plugin):
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_fired: Optional[tuple] = None
-        if self.plugin_config.enabled:
+        if self.plugin_config.enabled and is_scheduled_broadcast_mode(
+            self.config, "knowledge"
+        ):
             self._thread = threading.Thread(
                 target=self._scheduler_loop, name="ScheduledLeaderQuotes", daemon=True
             )
             self._thread.start()
             self.logger.info(
-                "已启用定时领导原话：目标群「%s」，整点小时 %s",
+                "已启用定时领导原话：目标群「%s」，每 %s 分钟，小时 %s",
                 self.plugin_config.target_chat_name,
+                self.plugin_config.interval_minutes,
                 self.plugin_config.merged_hours(),
             )
 
@@ -74,15 +100,17 @@ class ScheduledLeaderQuotesPlugin(Plugin):
 
     def _next_fire_after(self, now: datetime) -> datetime:
         hours = self.plugin_config.merged_hours()
+        minutes = self.plugin_config.broadcast_minutes()
         if not hours:
             return now + timedelta(hours=24)
-        base = now.replace(minute=0, second=0, microsecond=0)
+        base = now.replace(second=0, microsecond=0)
         for day_off in range(3):
             day = (base + timedelta(days=day_off)).date()
             for h in hours:
-                candidate = datetime.combine(day, dt_time(hour=h, minute=0, second=0))
-                if candidate > now:
-                    return candidate
+                for m in minutes:
+                    candidate = datetime.combine(day, dt_time(hour=h, minute=m, second=0))
+                    if candidate > now:
+                        return candidate
         return now + timedelta(hours=24)
 
     def _interruptible_sleep(self, seconds: float) -> bool:
@@ -118,14 +146,14 @@ class ScheduledLeaderQuotesPlugin(Plugin):
                 if not phrases:
                     continue
 
-                slot_key = (nxt.date(), nxt.hour)
+                slot_key = (nxt.date(), nxt.hour, nxt.minute)
                 if slot_key == self._last_fired:
                     if self._stop.wait(2):
                         return
                     continue
                 self._last_fired = slot_key
 
-                text = random.choice(phrases)
+                text = self.plugin_config.format_message(random.choice(phrases))
                 action = SendTextMessageAction(
                     content=text,
                     target=self.plugin_config.target_chat_name,
@@ -136,7 +164,7 @@ class ScheduledLeaderQuotesPlugin(Plugin):
                 )
                 self.add_rpa_action(action)
                 log.info(
-                    "整点领导原话已入队：%s → 「%s」",
+                    "定时领导原话已入队：%s → 「%s」",
                     nxt.strftime("%Y-%m-%d %H:%M"),
                     self.plugin_config.target_chat_name,
                 )
@@ -155,7 +183,7 @@ class ScheduledLeaderQuotesPlugin(Plugin):
         return self.name
 
     def get_plugin_description(self) -> str:
-        return "整点向指定群随机发送领导原话列表"
+        return "在指定时段按间隔向群随机发送话术（可配置内容前缀）"
 
     @classmethod
     def get_plugin_config_schema(cls):
