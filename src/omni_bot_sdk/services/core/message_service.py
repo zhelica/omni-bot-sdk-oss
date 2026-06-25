@@ -332,11 +332,11 @@ class MessageService:
                                     self.logger.error(f"发送回调失败: {e}")
 
                             # 检查是否包含 @chat/@let 关键字
-                            # if not has_at_keyword:
-                            #     self.logger.info(
-                            #         f"跳过不包含@chat或@let的消息: {table_name}"
-                            #     )
-                            #     continue
+                            if not has_at_keyword:
+                                self.logger.info(
+                                    f"跳过不包含@chat或@let的消息: {table_name}"
+                                )
+                                continue
 
                             # 检查是否启用自动消费（本地队列处理）
                             if not self.auto_consume:

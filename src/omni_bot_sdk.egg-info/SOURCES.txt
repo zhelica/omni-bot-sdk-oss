@@ -45,7 +45,7 @@ src/omni_bot_sdk/plugins/core/image_aes_plugin.py
 src/omni_bot_sdk/plugins/core/leader_quotes_phrases.py
 src/omni_bot_sdk/plugins/core/message_recall_plugin.py
 src/omni_bot_sdk/plugins/core/openai_bot_plugin.py
-src/omni_bot_sdk/plugins/core/openai_bot_plugin_bak.py
+src/omni_bot_sdk/plugins/core/openai_bot_plugin_bak2.py
 src/omni_bot_sdk/plugins/core/plugin_interface.py
 src/omni_bot_sdk/plugins/core/scheduled_broadcast.py
 src/omni_bot_sdk/plugins/core/scheduled_civil_service_quiz_plugin.py
