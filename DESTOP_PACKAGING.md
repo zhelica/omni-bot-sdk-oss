@@ -159,13 +159,15 @@ hiddenimports += [
 
 ### Q2b: 源码运行正常，exe 里 `WinError 1114` / `c10.dll` / `onnxruntime_pybind11_state` 加载失败（路径含 `_MEI`）
 
-**原因**: 旧版 **onefile** 单 exe 会把依赖解压到临时目录 `Temp\_MEI*`；PyTorch、ONNX Runtime 等大量原生 DLL 在这种模式下极易初始化失败。
+**原因**: **onefile** 单 exe 会把依赖解压到临时目录 `Temp\_MEI*`；PyTorch、ONNX Runtime 等大量原生 DLL 在这种模式下极易初始化失败（你看到的 `Temp\_MEI...\torch\lib\c10.dll` 即为此类）。
 
-**解决方案**（本仓库已采用）:
+**解决方案**（`omni_bot_sdk.spec` 已改为 onedir）:
 
-1. 使用 **onedir** 输出：`dist/omni-bot-win-amd64/` 目录内含 `omni-bot.exe` 与同目录 DLL，**整目录分发**，不要只拷单个 exe。
-2. `omni_bot_sdk.spec` 中已增加 `collect_all("torch")`，与 `ultralytics` / `onnxruntime` 一并收集。
-3. 若仍失败：安装 [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist)（x64），并确认杀毒软件未拦截 exe 目录下的 DLL。
+1. **重新打包**后使用 `dist/omni-bot-win-amd64/` **整目录**运行（内含 `omni-bot.exe` 与 `_internal`），不要只拷贝单个 exe。
+2. spec 已 `collect_all("torch")` + `ultralytics` + `onnxruntime`，并带 `rthook_torch_dll.py`。
+3. **常见根因**：`_internal/msvcp140.dll` 与系统 VC 运行库版本不一致，会导致 `c10.dll` `WinError 1114`。`build_exe.bat` / `build_exe.py` 打包后会**自动删除**该文件，改用系统运行库。
+4. 若仍失败：安装 [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist)（x64）；确认杀毒未拦截；路径尽量无中文。
+5. 现有已打包目录可手动删除：`dist\omni-bot-win-amd64\_internal\msvcp140.dll` 后重试启动。
 
 ### Q2c: exe 里 OCR 一直返回空列表 `[]`、耗时约 0 秒
 

@@ -104,7 +104,10 @@ def build(debug: bool = False, no_console: bool = False):
 
 
 def find_dist_dir() -> Path:
-    """查找 dist 目录下生成的目录"""
+    """查找 dist 目录下生成的目录（优先 onedir 名 omni-bot-win-amd64）"""
+    preferred = DIST_DIR / "omni-bot-win-amd64"
+    if preferred.is_dir():
+        return preferred
     if DIST_DIR.exists():
         dirs = [d for d in DIST_DIR.iterdir() if d.is_dir()]
         if dirs:
@@ -123,6 +126,12 @@ def prepare_distribution():
 
     print(f"  输出目录: {dist_app}")
 
+    # 打包版 msvcp140.dll 与系统 VC 运行库冲突 → torch c10.dll WinError 1114
+    conflict_msvcp = dist_app / "_internal" / "msvcp140.dll"
+    if conflict_msvcp.exists():
+        conflict_msvcp.unlink()
+        print("  [OK] 已移除冲突的 _internal/msvcp140.dll（改用系统 VC++ 运行库）")
+
     # 复制配置文件模板
     example_config = PROJECT_ROOT / "config.example.yaml"
     if example_config.exists():
@@ -139,6 +148,7 @@ def prepare_distribution():
     exe_name = "omni-bot.exe"
     bat_content = f'''@echo off
 chcp 65001 >nul
+cd /d "%~dp0"
 title Omni-Bot
 echo ============================================
 echo   Omni-Bot 微信RPA机器人
@@ -147,7 +157,7 @@ echo.
 echo  正在启动...
 echo.
 
-:: 尝试带配置启动
+:: 尝试带配置启动（须整目录运行，勿单独拷贝 exe）
 if exist "%~dp0config.yaml" (
     "%~dp0{exe_name}" -c "%~dp0config.yaml"
 ) else (

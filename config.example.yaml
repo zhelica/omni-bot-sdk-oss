@@ -18,6 +18,8 @@ rpa_api:
   callback_url:
   #延迟消费秒数
   process_delay: 10
+  #红包消息独立延迟秒数（打开「看看大家的手气」前等待）
+  red_envelope_delay: 60
   #内置插件自动消费
   auto_consume: true
   #api调用发送消息接口消费
@@ -98,6 +100,30 @@ plugins:
   self-msg-plugin:
     enabled: true
     priority: 1998
+  # 群红包领取记录插件
+  red-envelope-plugin:
+    enabled: true
+    priority: 1600
+    group_only: true
+    # 抓取成功后把领取明细发回群聊
+    send_to_group: true
+    # 领取明细回调，空则使用 rpa_api.callback_url
+    callback_url: ""
+  # 游戏消息收集插件（表情开局/收局 + 本地余额 GUI 结算）
+  game-message-collect-plugin:
+    enabled: false
+    priority: 1500
+    room_name: ""  # 目标群名称（与微信显示名一致）
+    start_emoji_md5: "52949bf9d43e8135aed3b0e6e7fe18bb"
+    end_emoji_md5: "023d7db8d4e25231d865af981328de76"
+    output_dir: game_records
+    db_path: game_records/game.db
+    min_bet: 50
+    reject_over_balance: true
+    open_gui: true
+    save_format: json
+    collect_non_text: false
+    skip_system: true
 rpa:
   # RPA相关参数
   action_delay: 0.3  # 操作延迟（秒）

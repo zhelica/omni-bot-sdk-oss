@@ -124,8 +124,16 @@ echo @echo off > "%DIST_DIR%\启动机器人.bat"
 echo title Omni-Bot >> "%DIST_DIR%\启动机器人.bat"
 echo echo 正在启动 Omni-Bot... >> "%DIST_DIR%\启动机器人.bat"
 echo echo. >> "%DIST_DIR%\启动机器人.bat"
+echo cd /d "%%~dp0" >> "%DIST_DIR%\启动机器人.bat"
 echo "%%~dp0omni-bot.exe" -c "%%~dp0config.yaml" >> "%DIST_DIR%\启动机器人.bat"
 echo if errorlevel 1 pause >> "%DIST_DIR%\启动机器人.bat"
+
+REM ---------- 修复 torch c10.dll WinError 1114 ----------
+REM 打包进 _internal 的 msvcp140.dll 常与系统 VC 运行库冲突，导致 c10.dll 初始化失败
+if exist "%DIST_DIR%\_internal\msvcp140.dll" (
+    del /f /q "%DIST_DIR%\_internal\msvcp140.dll" >nul 2>&1
+    echo [OK] 已移除冲突的 _internal\msvcp140.dll（改用系统 VC++ 运行库）
+)
 
 REM ---------- 显示结果 ----------
 echo.

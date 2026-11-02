@@ -138,11 +138,19 @@ class ImageProcessor:
                 img = Image.frombytes(
                     "RGB", screenshot.size, screenshot.bgra, "raw", "BGRX"
                 )
+                if img.size[0] < 1 or img.size[1] < 1:
+                    self.logger.error(
+                        f"截图为空图: size={img.size}, region={region}"
+                    )
+                    return None
                 if save_path:
-                    img.save(save_path)
+                    try:
+                        img.save(save_path)
+                    except Exception as save_err:
+                        self.logger.warning(f"截图保存失败 {save_path}: {save_err}")
                 return img
         except Exception as e:
-            self.logger.error(f"截图出错: {str(e)}")
+            self.logger.error(f"截图出错: {str(e)}, region={region}")
             return None
 
     def draw_boxes_on_screen(

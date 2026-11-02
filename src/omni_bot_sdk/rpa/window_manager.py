@@ -1461,12 +1461,51 @@ class WindowManager:
                 picked.append(r)
         return picked
 
-    def _fuzzy_match(self, target: str, candidate: str) -> bool:
-        """模糊匹配两个字符串，忽略空白字符。"""
+    @staticmethod
+    def _strip_for_contact_match(s: str) -> str:
+        """
+        联系人/群名比对用归一化：去空白、emoji、常见修饰符。
+        例如「龙虾🦞测试群」与 OCR「」可对齐。
+        """
         import re
-        def normalize(s):
-            return re.sub(r'\s+', '', s).lower()
-        return normalize(target) == normalize(candidate)
+        text = re.sub(r"\s+", "", s or "")
+        # 补充平面 emoji（如 🦞）
+        text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+        # 杂项符号 / 变体选择符 / ZWJ
+        text = re.sub(r"[\u2600-\u27BF\uFE0F\u200D]", "", text)
+        return text.lower()
+
+    def _fuzzy_match(self, target: str, candidate: str) -> bool:
+        """模糊匹配联系人名称：忽略空白与 emoji，支持互相包含。"""
+        t = self._strip_for_contact_match(target)
+        c = self._strip_for_contact_match(candidate)
+        if not t or not c:
+            return False
+        if t == c:
+            return True
+        if t in c or c in t:
+            return True
+        try:
+            from Levenshtein import ratio
+            return ratio(t, c) >= 0.75
+        except Exception:
+            return False
+
+    def _is_junk_search_ocr_label(self, label: str) -> bool:
+        """搜索结果里应忽略的 OCR 碎片（右侧角标、时间、单字等）。"""
+        import re
+        lab = (label or "").strip()
+        if not lab or len(lab) < 2:
+            return True
+        if lab.isdigit():
+            return True
+        if re.match(r"^号[：:].*$", lab):
+            return True
+        if re.match(r"^[昨今\d：:时分秒]+$", lab):
+            return True
+        if lab in ("Q", "六", "口", "D", "O", "0"):
+            return True
+        return False
 
     def _pick_search_result_via_ocr(self, target: str) -> Tuple[bool, str]:
         """
@@ -1570,34 +1609,34 @@ class WindowManager:
             topmost_category_bottom = max(topmost_category_bottom, min(all_category_tops))
         self.logger.info("分类标签边界 y=%s，只有 bbox[1]>%s 的结果才会被点击", topmost_category_bottom, topmost_category_bottom)
 
-        # 优先精确匹配目标联系人：OCR 结果中包含目标名称时，
-        # 必须位于分类标签下方（排除"搜索网络结果"等顶部分类下的条目）
+        # 优先匹配目标联系人（忽略 emoji 差异），且须在分类标签下方
         valid_target_matches = []
         for r in result:
             r_label = r.get("label", "")
             if not r_label:
                 continue
-            # 排除明显不是联系人的条目（数字、符号、分类标签本身）
-            if r_label.strip().isdigit():
+            if self._is_junk_search_ocr_label(r_label):
                 continue
             norm_label = self._normalize_ocr_category_text(r_label)
             if r_label in self._SEARCH_CATEGORY_KEYS or norm_label in self._SEARCH_CATEGORY_KEYS:
                 continue
-            if any(kw in r_label for kw in ("搜索网络", "搜索", "六", "Q")):
+            if any(kw in r_label for kw in ("搜索网络", "搜索网络结果")):
                 continue
-            # 模糊匹配：OCR 标签包含目标，或目标包含 OCR 标签
-            if (target in r_label or r_label in target or
-                    self._fuzzy_match(target, r_label)):
+            if r_label.strip() in ("搜索", "六", "Q"):
+                continue
+            if self._fuzzy_match(target, r_label):
                 r_bbox = r.get("pixel_bbox", [])
                 if len(r_bbox) == 4:
-                    # 关键：必须位于分类标签下方（bbox top > 边界）才算有效
                     if r_bbox[1] <= topmost_category_bottom:
                         self.logger.info(
                             "跳过目标「%s」（bbox=%s），bbox[1]=%s <= 边界y=%s",
                             r_label, r_bbox, r_bbox[1], topmost_category_bottom,
                         )
                         continue
-                    valid_target_matches.append({"r": r, "label": r_label, "bbox": r_bbox})
+                    # 同一目标可能出现在「最常使用」与「搜索网络结果」：优先更靠上、更靠左
+                    valid_target_matches.append(
+                        {"r": r, "label": r_label, "bbox": r_bbox}
+                    )
 
         # 如果只找到 1 个有效匹配（且有分类标签），说明搜索结果可能还未完全加载，
         # 等一下再重新截图 OCR 进行验证（最多重试两次）。
@@ -1626,15 +1665,14 @@ class WindowManager:
                 r_label = r.get("label", "")
                 if not r_label:
                     continue
-                if r_label.strip().isdigit():
+                if self._is_junk_search_ocr_label(r_label):
                     continue
                 norm_label = self._normalize_ocr_category_text(r_label)
                 if r_label in self._SEARCH_CATEGORY_KEYS or norm_label in self._SEARCH_CATEGORY_KEYS:
                     continue
-                if any(kw in r_label for kw in ("搜索网络", "搜索", "六", "Q")):
+                if any(kw in r_label for kw in ("搜索网络", "搜索网络结果")):
                     continue
-                if (target in r_label or r_label in target or
-                        self._fuzzy_match(target, r_label)):
+                if self._fuzzy_match(target, r_label):
                     r_bbox = r.get("pixel_bbox", [])
                     if len(r_bbox) == 4 and r_bbox[1] > topmost_category_bottom:
                         new_matches.append({"r": r, "label": r_label, "bbox": r_bbox})
@@ -1645,9 +1683,12 @@ class WindowManager:
                 need_retry = False
                 break
 
-        # 从所有有效匹配中，选择最靠上的那个
+        # 有效匹配中取最靠上、其次最靠左（避免点到同行右侧碎片）
         if valid_target_matches:
-            best = min(valid_target_matches, key=lambda x: x["bbox"][1])
+            best = min(
+                valid_target_matches,
+                key=lambda x: (x["bbox"][1], x["bbox"][0]),
+            )
             r = best.get("r")
             r_label = best.get("label", "")
             r_bbox = best["bbox"]
@@ -1687,33 +1728,40 @@ class WindowManager:
 
         category_bottom = bbox[3] + oy
 
-        # 找分类标签下方最近的搜索结果（排除"搜索网络结果"和标签本身）
-        excluded_keywords = ["搜索网络", "搜索", "六", "Q"]
+        # 找分类标签下方最近的搜索结果（排除网络结果与 OCR 碎片）
+        excluded_keywords = ["搜索网络", "搜索网络结果"]
+        network_y = None
+        for nr in result:
+            if "搜索网络" in (nr.get("label") or ""):
+                nb = nr.get("pixel_bbox") or []
+                if len(nb) == 4:
+                    network_y = nb[1]
+                    break
         candidates = []
         for r in result:
             r_bbox = r.get("pixel_bbox", [])
             if len(r_bbox) != 4:
                 continue
             r_label = r.get("label", "")
-            # 跳过排除项和标签本身
             if any(kw in r_label for kw in excluded_keywords):
                 continue
             if r_label == category_label.get("label"):
                 continue
-            # 跳过纯数字（如未读消息数量 "2"）或纯符号
-            if r_label.strip().isdigit():
+            if self._is_junk_search_ocr_label(r_label):
                 continue
-            # 只选择位于分类标签下方的条目
+            # 「搜索网络结果」分区以下的条目跳过（避免点到网页结果）
+            if network_y is not None and r_bbox[1] >= network_y:
+                continue
             r_top = r_bbox[1] + oy
-            r_bottom = r_bbox[3] + oy
             if r_top >= category_bottom:
-                # 计算该条目的大致中心点
                 candidates.append({
                     "label": r_label,
                     "bbox": r_bbox,
                     "center_x": (r_bbox[0] + r_bbox[2]) / 2 + ox,
                     "center_y": (r_bbox[1] + r_bbox[3]) / 2 + oy,
                     "top": r_top,
+                    "left": r_bbox[0],
+                    "match": self._fuzzy_match(target, r_label),
                 })
 
         if not candidates:
@@ -1725,15 +1773,20 @@ class WindowManager:
             final_y = int(click_y + off_y)
             selected_contact_label = ""
         else:
-            # 选择最靠上的候选结果
-            candidates.sort(key=lambda x: x["top"])
+            # 优先目标名匹配，再最靠上、最靠左（群名在左，右侧常是时间/角标碎片）
+            candidates.sort(
+                key=lambda x: (0 if x["match"] else 1, x["top"], x["left"])
+            )
             first_result = candidates[0]
             final_x = int(first_result["center_x"])
             final_y = int(first_result["center_y"])
             selected_contact_label = first_result["label"]
             self.logger.info(
-                "找到分类「%s」下方搜索结果: 「%s」, bbox=%s",
-                category_label.get("label"), first_result["label"], first_result["bbox"],
+                "找到分类「%s」下方搜索结果: 「%s」, bbox=%s, match=%s",
+                category_label.get("label"),
+                first_result["label"],
+                first_result["bbox"],
+                first_result["match"],
             )
         self.logger.info(
             "OCR 选中分类「%s」(y=%s)，点击位置: (%d, %d)",

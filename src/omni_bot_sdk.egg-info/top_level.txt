@@ -1,1 +1,2 @@
+game_records
 omni_bot_sdk

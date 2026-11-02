@@ -161,23 +161,39 @@ class Message:
         """获取实际发送者名称"""
         return _contact_display_name(self.contact)
 
+    # @property
+    # def is_self(self) -> bool:
+    #     """判断消息是否来自自己"""
+    #     contact_uname = _contact_username(self.contact)
+    #     if contact_uname:
+    #         return self.user_info.account == contact_uname
+    #
+    #     sender_id = ""
+    #     if hasattr(self, "content") and self.content is not None:
+    #         content_sender_match = re.match(r"(wxid_\w+):", self.content)
+    #         if content_sender_match:
+    #             sender_id = content_sender_match.group(1)
+    #     if sender_id:
+    #         return self.user_info.account == sender_id
+    #
+    #     return False
+
     @property
     def is_self(self) -> bool:
         """判断消息是否来自自己"""
-        contact_uname = _contact_username(self.contact)
-        if contact_uname:
-            return self.user_info.account == contact_uname
-
-        sender_id = ""
-        if hasattr(self, "content") and self.content is not None:
-            content_sender_match = re.match(r"(wxid_\w+):", self.content)
-            if content_sender_match:
-                sender_id = content_sender_match.group(1)
-        if sender_id:
-            return self.user_info.account == sender_id
-
-        return False
-
+        if self.contact:
+            return self.user_info.account == _contact_username(self.contact)
+        else:
+            if (
+                    self.local_type == MessageType.System
+                    or self.local_type == MessageType.Pat
+            ):
+                # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
+                # print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
+                return True
+            else:
+                # print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
+                return False
     @property
     def is_at(self) -> bool:
         if not self.is_chatroom:

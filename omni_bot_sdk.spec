@@ -36,9 +36,22 @@ hiddenimports = list(yara_hiddenimports)
 protobuf_datas, protobuf_binaries, protobuf_hiddenimports = collect_all("google.protobuf")
 hiddenimports += list(protobuf_hiddenimports)
 
+# 收集 torch（YOLO 依赖；onefile/_MEI 下 c10.dll 极易 WinError 1114，必须 onedir+整包收集）
+torch_datas, torch_binaries, torch_hiddenimports = collect_all("torch")
+hiddenimports += list(torch_hiddenimports)
+
 # 收集 ultralytics (YOLO)
 ultralytics_datas, ultralytics_binaries, ultralytics_hiddenimports = collect_all("ultralytics")
 hiddenimports += list(ultralytics_hiddenimports)
+
+# 收集 onnxruntime（RapidOCR 本地推理）
+try:
+    onnxruntime_datas, onnxruntime_binaries, onnxruntime_hiddenimports = collect_all(
+        "onnxruntime"
+    )
+    hiddenimports += list(onnxruntime_hiddenimports)
+except Exception:
+    onnxruntime_datas, onnxruntime_binaries, onnxruntime_hiddenimports = [], [], []
 
 # 收集 rapidocr (注意: 需收集 rapidocr 而非 rapidocr_onnxruntime stub)
 rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all("rapidocr")
@@ -360,7 +373,9 @@ datas = (
     + yolo_datas
     + yara_datas
     + protobuf_datas
+    + torch_datas
     + ultralytics_datas
+    + onnxruntime_datas
     + rapidocr_datas
     + omegaconf_datas
     + minio_datas
@@ -387,7 +402,9 @@ datas = (
 binaries = (
     yara_binaries
     + protobuf_binaries
+    + torch_binaries
     + ultralytics_binaries
+    + onnxruntime_binaries
     + rapidocr_binaries
     + omegaconf_binaries
     + minio_binaries
@@ -424,9 +441,17 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[str(project_root / "src" / "omni_bot_sdk" / "_pyinstaller")],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[
+        str(
+            project_root
+            / "src"
+            / "omni_bot_sdk"
+            / "_pyinstaller"
+            / "rthook_torch_dll.py"
+        )
+    ],
     excludes=[
-        "tkinter",
+        # 勿排除 tkinter：游戏后台 GUI 依赖
         "matplotlib",
         "PyQt5",
         "PyQt6",
@@ -445,24 +470,32 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# onedir：DLL 与 exe 同目录，避免 Temp\_MEI* 下加载 c10.dll 失败 (WinError 1114)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="omni-bot",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=True,           # 设为 False 可隐藏控制台窗口 (仅 Windows GUI App)
+    console=True,  # 设为 False 可隐藏控制台窗口 (仅 Windows GUI App)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="omni-bot-win-amd64",
 )

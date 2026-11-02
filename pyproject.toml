@@ -49,6 +49,7 @@ dependencies = [
     "boto3==1.39.3",
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
+    "openpyxl>=3.1.0",
 ]
 [project.urls]
 Homepage = "https://github.com/weixin-omni/omni-bot-sdk-oss"
@@ -77,3 +78,5 @@ openai-bot-plugin = "omni_bot_sdk.plugins.core.openai_bot_plugin:OpenAIBotPlugin
 scheduled-leader-quotes-plugin = "omni_bot_sdk.plugins.core.scheduled_leader_quotes_plugin:ScheduledLeaderQuotesPlugin"
 scheduled-civil-service-quiz-plugin = "omni_bot_sdk.plugins.core.scheduled_civil_service_quiz_plugin:ScheduledCivilServiceQuizPlugin"
 image-aes-plugin = "omni_bot_sdk.plugins.core.image_aes_plugin:ImageAesPlugin"
+red-envelope-plugin = "omni_bot_sdk.plugins.core.red_envelope_plugin:RedEnvelopePlugin"
+game-message-collect-plugin = "omni_bot_sdk.plugins.core.game_message_collect_plugin:GameMessageCollectPlugin"

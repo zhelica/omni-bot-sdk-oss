@@ -136,6 +136,7 @@ class RPAController:
             RenameRoomNameHandler,
             RenameRoomRemarkHandler,
             RecallMessageHandler,
+            RecordRedEnvelopeHandler,
             SendFileHandler,
             SendImageHandler,
             SendTextMessageHandler,
@@ -159,6 +160,7 @@ class RPAController:
             (RPAActionType.PAT, PatHandler),
             (RPAActionType.LEAVE_ROOM, LeaveRoomHandler),
             (RPAActionType.RECALL_MESSAGE, RecallMessageHandler),
+            (RPAActionType.RECORD_RED_ENVELOPE, RecordRedEnvelopeHandler),
         ]
         try:
             from .action_handlers import (

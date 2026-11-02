@@ -30,17 +30,45 @@ def setup_logging(log_dir: str = "logs", log_level: int = logging.INFO):
     # 配置根日志记录器
     root_logger.setLevel(log_level)
 
-    # Windows 控制台强制使用 UTF-8 编码
+    # Windows 控制台强制使用 UTF-8 编码（群名含 emoji 时避免 GBK UnicodeEncodeError）
     if sys.platform == "win32":
         import io
         # PyInstaller 控制台构建已默认 UTF-8，仅在交互式 Python 环境下包装
         # 注意：打包后重新包装 stdout 会导致流式输出缓冲异常，屏幕不刷新
-        if not getattr(sys, '_MEIPASS', False):
-            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+        if not getattr(sys, "_MEIPASS", False):
+            try:
+                if hasattr(sys.stdout, "buffer"):
+                    sys.stdout = io.TextIOWrapper(
+                        sys.stdout.buffer, encoding="utf-8", errors="replace"
+                    )
+                if hasattr(sys.stderr, "buffer"):
+                    sys.stderr = io.TextIOWrapper(
+                        sys.stderr.buffer, encoding="utf-8", errors="replace"
+                    )
+            except Exception:
+                pass
+
+    class _SafeStreamHandler(colorlog.StreamHandler):
+        """控制台仍是 GBK 时，对无法编码字符做替换，避免 Logging error。"""
+
+        def emit(self, record):
+            try:
+                super().emit(record)
+            except UnicodeEncodeError:
+                try:
+                    msg = self.format(record)
+                    stream = self.stream
+                    encoding = getattr(stream, "encoding", None) or "utf-8"
+                    safe = msg.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                    stream.write(safe + self.terminator)
+                    self.flush()
+                except Exception:
+                    self.handleError(record)
 
     # 创建彩色控制台处理器
-    console_handler = colorlog.StreamHandler()
+    console_handler = _SafeStreamHandler()
     console_handler.setLevel(log_level)
 
     # 彩色日志格式，增加毫秒

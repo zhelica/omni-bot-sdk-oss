@@ -21,6 +21,10 @@ from .switch_conversation_handler import (
     SwitchConversationAction,
 )
 from .recall_message_handler import RecallMessageHandler, RecallMessageAction
+from .record_red_envelope_handler import (
+    RecordRedEnvelopeHandler,
+    RecordRedEnvelopeAction,
+)
 
 try:
     from .pro import *
@@ -58,6 +62,10 @@ __all__ = [
     "SendTextMessageAction",
     "SwitchConversationHandler",
     "SwitchConversationAction",
+    "RecallMessageHandler",
+    "RecallMessageAction",
+    "RecordRedEnvelopeHandler",
+    "RecordRedEnvelopeAction",
     "Invite2RoomHandler",
     "Invite2RoomAction",
     "NewFriendHandler",

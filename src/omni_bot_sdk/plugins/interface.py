@@ -32,6 +32,7 @@ from omni_bot_sdk.rpa.action_handlers import (
     LeaveRoomAction,
     SendPyqAction,
     NewFriendAction,
+    RecordRedEnvelopeAction,
 )
 
 
@@ -972,4 +973,5 @@ __all__ = [
     "LeaveRoomAction",
     "SendPyqAction",
     "NewFriendAction",
+    "RecordRedEnvelopeAction",
 ]

@@ -8,11 +8,20 @@ import re
 import threading
 import time
 from queue import Empty, Queue
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 import httpx
 from omni_bot_sdk.services.core.database_service import DatabaseService
 from omni_bot_sdk.weixin.parser.util.common import decompress
+
+
+# 微信红包消息类型（与 MessageType.RedEnvelope 一致）
+RED_ENVELOPE_MSG_TYPE = 8594229559345
+# 表情包（MessageType.Emoji）——本机不完整表情重试暂关闭，改用手机发送
+# EMOJI_MSG_TYPE = 47
+# INCOMPLETE_EMOJI_DELAY = 2
+# INCOMPLETE_EMOJI_MAX_RETRY = 5
+# INCOMPLETE_EMOJI_MIN_CONTENT_LEN = 200
 
 
 class DelayedMessage:
@@ -23,19 +32,31 @@ class DelayedMessage:
         insert_time: float,
         server_id: str,
         message_db_path: Path,
-        username: str
+        username: str,
+        delay_seconds: Optional[int] = None,
+        retry_count: int = 0,
     ):
         self.message = message
         self.insert_time = insert_time
         self.server_id = server_id
         self.message_db_path = message_db_path
         self.username = username
+        self.delay_seconds = delay_seconds
+        self.retry_count = retry_count
 
 
 class MessageService:
     MAX_DELAY_QUEUE_SIZE = 1000
 
-    def __init__(self, message_queue: Queue, db: DatabaseService, auto_consume: bool = True, delay_seconds: int = 30, callback_url: str = ""):
+    def __init__(
+        self,
+        message_queue: Queue,
+        db: DatabaseService,
+        auto_consume: bool = True,
+        delay_seconds: int = 30,
+        callback_url: str = "",
+        red_envelope_delay: int = 60,
+    ):
         self.logger = logging.getLogger(__name__)
         self.message_queue = message_queue
         self.db = db
@@ -43,6 +64,7 @@ class MessageService:
         self.is_paused = False
         self.auto_consume = auto_consume
         self.DELAY_SECONDS = delay_seconds
+        self.RED_ENVELOPE_DELAY = red_envelope_delay
         self.callback_url = callback_url
         self.thread: Optional[threading.Thread] = None
         self.seen_message_types = set()
@@ -99,6 +121,29 @@ class MessageService:
         self.is_paused = False
         self.logger.info("消息监听器已恢复。")
 
+    # --- 本机表情包重试相关（暂关闭，保留代码便于以后恢复）---
+    # @staticmethod
+    # def _msg_content_len(msg_data: tuple) -> int:
+    #     if not msg_data or len(msg_data) <= 12 or msg_data[12] is None:
+    #         return 0
+    #     try:
+    #         return len(msg_data[12])
+    #     except Exception:
+    #         return 0
+    #
+    # def _is_incomplete_emoji(self, msg_data: tuple) -> bool:
+    #     if not msg_data or len(msg_data) < 3:
+    #         return False
+    #     try:
+    #         msg_type = int(msg_data[2])
+    #     except (TypeError, ValueError):
+    #         return False
+    #     if msg_type != EMOJI_MSG_TYPE:
+    #         return False
+    #     return self._msg_content_len(msg_data) < INCOMPLETE_EMOJI_MIN_CONTENT_LEN
+    #
+    # def _refetch_message_by_local_id(...): ...
+
     def _process_delayed_messages(self):
         """处理延迟队列中已到期的消息"""
         current_time = time.time()
@@ -107,7 +152,12 @@ class MessageService:
         with self._delayed_lock:
             remaining_delayed = []
             for delayed_msg in self._delayed_messages:
-                if current_time - delayed_msg.insert_time >= self.DELAY_SECONDS:
+                delay = (
+                    delayed_msg.delay_seconds
+                    if delayed_msg.delay_seconds is not None
+                    else self.DELAY_SECONDS
+                )
+                if current_time - delayed_msg.insert_time >= delay:
                     messages_to_process.append(delayed_msg)
                 else:
                     remaining_delayed.append(delayed_msg)
@@ -120,8 +170,9 @@ class MessageService:
                 table_name, msg_data = msg
                 msg_type = msg_data[2] if len(msg_data) > 2 else "unknown"
 
+                db_name = Path(msg_data[-1]).name if msg_data and msg_data[-1] else "?"
                 self.logger.info(
-                    f"延迟消息处理，来自于{Path(msg_data[-1]).name} : {table_name}, 消息类型: {msg_type}"
+                    f"延迟消息处理，来自于{db_name} : {table_name}, 消息类型: {msg_type}"
                 )
 
                 # 放入消息队列
@@ -200,6 +251,29 @@ class MessageService:
                                 self.seen_message_types.add(msg_type)
                                 self.logger.info(f"发现新消息类型: {msg_type}")
 
+                            # 调试：打印原始 msg_data 各字段（bytes 只打长度与前缀）
+                            try:
+                                parts = []
+                                for i, item in enumerate(msg_data):
+                                    if item is None:
+                                        parts.append(f"[{i}]=None")
+                                    elif isinstance(item, bytes):
+                                        preview = item[:64]
+                                        parts.append(
+                                            f"[{i}]=bytes(len={len(item)}, head={preview!r})"
+                                        )
+                                    elif isinstance(item, str):
+                                        preview = item if len(item) <= 200 else item[:200] + "..."
+                                        parts.append(f"[{i}]=str({preview!r})")
+                                    else:
+                                        parts.append(f"[{i}]={type(item).__name__}({item!r})")
+                                self.logger.info(
+                                    f"原始msg_data table={table_name} len={len(msg_data)} | "
+                                    + " | ".join(parts)
+                                )
+                            except Exception as e:
+                                self.logger.warning(f"打印 msg_data 失败: {e}")
+
                             # 只处理 msg_type = 1 的消息，其他类型不加入延迟队列
                             # if msg_type != 1:
                             #     self.logger.info(
@@ -227,6 +301,10 @@ class MessageService:
                                         sender_name = first_line.rstrip(':')
                                         if sender_name.startswith('wxid_') or sender_name.startswith('gh_'):
                                             sender_wxid = sender_name
+                                        self.logger.info(
+                                            f"msg_data 疑似发送者前缀来自[{i}]: "
+                                            f"sender_name={sender_name!r} sender_wxid={sender_wxid!r}"
+                                        )
                                     # 提取包含关键字的消息
                                     if '@chat' in text or '@let' in text:
                                         content = text
@@ -331,8 +409,12 @@ class MessageService:
                                 except Exception as e:
                                     self.logger.error(f"发送回调失败: {e}")
 
-                            # 检查是否包含 @chat/@let 关键字
-                            # if not has_at_keyword:
+                            # 红包消息放行；其余仍要求包含 @chat/@let
+                            try:
+                                is_red_envelope = int(msg_type) == RED_ENVELOPE_MSG_TYPE
+                            except (TypeError, ValueError):
+                                is_red_envelope = False
+                            # if not has_at_keyword and not is_red_envelope:
                             #     self.logger.info(
                             #         f"跳过不包含@chat或@let的消息: {table_name}"
                             #     )
@@ -352,16 +434,30 @@ class MessageService:
                                 )
                                 self._delayed_messages.pop(0)
 
-                            # 加入延迟队列
+                            # 红包用独立延迟；本机表情包重试暂关闭
+                            msg_delay = (
+                                self.RED_ENVELOPE_DELAY
+                                if is_red_envelope
+                                else self.DELAY_SECONDS
+                            )
+                            # incomplete_emoji = self._is_incomplete_emoji(msg_data)
+                            # if incomplete_emoji:
+                            #     msg_delay = INCOMPLETE_EMOJI_DELAY
                             self._delayed_messages.append(
                                 DelayedMessage(
-                                    msg, time.time(),
-                                    server_id, message_db_path, username
+                                    msg,
+                                    time.time(),
+                                    server_id,
+                                    message_db_path,
+                                    username,
+                                    delay_seconds=msg_delay,
                                 )
                             )
                             self.logger.info(
                                 f"新消息加入延迟队列，来自于{Path(msg_data[-1]).name} : {table_name}, "
-                                f"消息类型: {msg_type}, server_id: {server_id}, 延迟{self.DELAY_SECONDS}秒处理"
+                                f"消息类型: {msg_type}, server_id: {server_id}, "
+                                f"延迟{msg_delay}秒处理"
+                                + (" [红包]" if is_red_envelope else "")
                             )
 
                     self.logger.info(f"延迟队列大小: {len(self._delayed_messages)}")

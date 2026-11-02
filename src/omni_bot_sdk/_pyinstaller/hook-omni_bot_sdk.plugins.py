@@ -19,6 +19,7 @@ hiddenimports += [
     "omni_bot_sdk.plugins.core.block_empty_room_plugin",
     "omni_bot_sdk.plugins.core.image_aes_plugin",
     "omni_bot_sdk.plugins.core.message_recall_plugin",
+    "omni_bot_sdk.plugins.core.red_envelope_plugin",
     "omni_bot_sdk.plugins.core.plugin_interface",
     "omni_bot_sdk.plugins.interface",
 ]

@@ -1,8 +1,10 @@
 import logging
+import os
 import queue
 import signal
 import time
-from typing import Any, List, Tuple
+from datetime import datetime
+from typing import Any, List, Optional, Tuple
 import threading
 import requests
 
@@ -62,8 +64,11 @@ class Bot:
             "图片AES key需要在微信启动后一小段时间内才能获取，如果无法获取请重新启动微信后重试"
         )
 
-        # 秘钥验证
-        self._validate_license()
+        # 秘钥验证（启动时校验一次，并启动定时检查线程）
+        self._license_check_stop = threading.Event()
+        self._license_check_thread: Optional[threading.Thread] = None
+        self._validate_license(fatal=True)
+        self._start_license_checker()
 
         self.is_running = False
         self.is_paused = False  # 标记是否处于暂停状态
@@ -73,13 +78,13 @@ class Bot:
         # 用户服务与用户信息初始化
         self.user_service: UserService = UserService(self.config.get("dbkey"))
         self.user_info: UserInfo = self.user_service.get_user_info()
-        allow_versions = ["4.1.8.107","4.1.7.59","4.1.9.57"]
-        if self.user_info.version not in allow_versions:
-            self.logger.error(
-                f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"
-            )
-            self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
-            exit(1)
+        # allow_versions = ["4.1.8.107","4.1.7.59","4.1.9.62"]
+        # if self.user_info.version not in allow_versions:
+        #     self.logger.error(
+        #         f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"
+        #     )
+        #     self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
+        #     exit(1)
         # 数据库服务初始化（需最先初始化）
         self.db: DatabaseService = DatabaseService(self.user_service)
         # RPA相关组件初始化
@@ -104,55 +109,120 @@ class Bot:
             *all_services,
         ]
 
-    def _validate_license(self):
+    def _fail_license(self, message: str, fatal: bool = True) -> bool:
+        """秘钥校验失败时的统一处理。"""
+        self.logger.error(message)
+        if fatal:
+            # 定时检查线程中 exit() 无法结束进程，统一用 os._exit
+            os._exit(1)
+        return False
+
+    def _validate_license(
+        self, fatal: bool = True, allow_network_failure: bool = False
+    ) -> bool:
         """
         验证软件秘钥。
         状态说明：0-初始，1-已激活，2-过期
+        :param fatal: True 时校验失败直接退出进程；False 时返回是否通过
+        :param allow_network_failure: True 时网络异常只记日志不退出（用于定时检查）
         """
-        license_config = self.config.get("license", {})
+        license_config = self.config.get("license", {}) or {}
         key = license_config.get("key", "")
-        
+
         if not key:
-            self.logger.error("秘钥未配置，请检查 config.yaml 中的 license.key")
-            exit(1)
-        
+            return self._fail_license(
+                "秘钥未配置，请检查 config.yaml 中的 license.key", fatal=fatal
+            )
+
         check_url = "http://218.244.140.247/prod-api/bot/keys/check"
-        
+
         try:
             # 调用秘钥验证接口
             url = f"{check_url}/{key}"
             response = requests.get(url, timeout=10)
             result = response.json()
-            
+
             if result.get("code") != 200:
-                self.logger.error(f"秘钥验证请求失败: {result.get('msg', '未知错误')}")
-                exit(1)
-            
+                return self._fail_license(
+                    f"秘钥验证请求失败: {result.get('msg', '未知错误')}", fatal=fatal
+                )
+
             data = result.get("data", {})
             status = data.get("status")
-            expires_time = data.get("expiresTime", "")
-            
-            if status == "0":
-                self.logger.error("秘钥状态为初始状态，请先激活秘钥")
-                exit(1)
-            elif status == "2":
-                self.logger.error(f"秘钥已过期，过期时间: {expires_time}")
-                exit(1)
-            elif status == "1":
+            expires_time = data.get("expiresTime", "") or ""
+
+            # 本地再校验过期时间：服务端 status 可能未及时置为 2
+            if expires_time:
+                expires_dt = None
+                for fmt in (
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d",
+                    "%Y/%m/%d %H:%M:%S",
+                    "%Y/%m/%d",
+                ):
+                    try:
+                        expires_dt = datetime.strptime(str(expires_time).strip(), fmt)
+                        break
+                    except ValueError:
+                        continue
+                if expires_dt is not None and datetime.now() > expires_dt:
+                    return self._fail_license(
+                        f"秘钥已过期，过期时间: {expires_time}", fatal=fatal
+                    )
+
+            if status == "0" or status == 0:
+                return self._fail_license(
+                    "秘钥状态为初始状态，请先激活秘钥", fatal=fatal
+                )
+            elif status == "2" or status == 2:
+                return self._fail_license(
+                    f"秘钥已过期，过期时间: {expires_time}", fatal=fatal
+                )
+            elif status == "1" or status == 1:
                 self.logger.info(f"秘钥验证通过，有效期至: {expires_time}")
+                return True
             else:
-                self.logger.error(f"未知的秘钥状态: {status}")
-                exit(1)
-                
+                return self._fail_license(f"未知的秘钥状态: {status}", fatal=fatal)
+
         except requests.exceptions.Timeout:
-            self.logger.error("秘钥验证请求超时，请检查网络连接")
-            exit(1)
+            msg = "秘钥验证请求超时，请检查网络连接"
+            if allow_network_failure:
+                self.logger.warning(f"{msg}（定时检查将在下次重试）")
+                return True
+            return self._fail_license(msg, fatal=fatal)
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"秘钥验证请求失败: {e}")
-            exit(1)
+            msg = f"秘钥验证请求失败: {e}"
+            if allow_network_failure:
+                self.logger.warning(f"{msg}（定时检查将在下次重试）")
+                return True
+            return self._fail_license(msg, fatal=fatal)
         except Exception as e:
-            self.logger.error(f"秘钥验证异常: {e}")
-            exit(1)
+            return self._fail_license(f"秘钥验证异常: {e}", fatal=fatal)
+
+    def _start_license_checker(self):
+        """启动后台线程，每小时复查秘钥是否过期（间隔写死，不可配置）。"""
+        interval = 3600  # 1 小时，不暴露给配置，避免被关闭
+
+        def _loop():
+            self.logger.info(f"秘钥定时检查已启动，间隔 {interval} 秒")
+            while not self._license_check_stop.wait(interval):
+                self.logger.info("开始定时检查软件秘钥...")
+                # 过期/无效则退出；网络异常仅告警，下次再查
+                self._validate_license(fatal=True, allow_network_failure=True)
+
+        self._license_check_thread = threading.Thread(
+            target=_loop,
+            name="License-Check-Thread",
+            daemon=True,
+        )
+        self._license_check_thread.start()
+
+    def _stop_license_checker(self):
+        """停止秘钥定时检查线程。"""
+        self._license_check_stop.set()
+        if self._license_check_thread and self._license_check_thread.is_alive():
+            self._license_check_thread.join(timeout=2)
+            self.logger.info("秘钥定时检查已停止")
 
     def _create_image_processor(self) -> ImageProcessor:
         """
@@ -201,6 +271,7 @@ class Bot:
         rpa_api_config = self.config.get("rpa_api", {})
         auto_consume = rpa_api_config.get("auto_consume", True)
         process_delay = rpa_api_config.get("process_delay", 30)
+        red_envelope_delay = rpa_api_config.get("red_envelope_delay", 60)
         callback_url = rpa_api_config.get("callback_url", "")
 
         weixin_status_service = WeixinStatusService(
@@ -210,7 +281,8 @@ class Bot:
             self.message_queue, self.db,
             auto_consume=auto_consume,
             delay_seconds=process_delay,
-            callback_url=callback_url
+            callback_url=callback_url,
+            red_envelope_delay=red_envelope_delay,
         )
         message_factory_service = MessageFactoryService(self.user_info, self.db)
         processor_service = ProcessorService(
@@ -377,7 +449,7 @@ class Bot:
         # 给文件助手发图片
         self.logger.info("正在发送图片到文件助手...")
         image_path = self.image_processor.generate_image(
-            text="客服:sd000000a2",
+            text="程序启动",
             output_filename="test_image.png",
         )
         self.rpa_task_queue.put(
@@ -397,6 +469,9 @@ class Bot:
             return
         self._notify_status(self.STATUS_STOPPING)
         self.logger.info("--- Starting Bot Teardown ---")
+
+        # 停止秘钥定时检查
+        self._stop_license_checker()
 
         # 停止 RPA API 服务
         if hasattr(self, 'rpa_api_server') and self.rpa_api_server:

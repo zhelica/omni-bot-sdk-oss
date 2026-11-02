@@ -119,22 +119,29 @@ class PluginManager:
 
         plugins_config = self.bot.config.get("plugins", {})
 
-        # 优先尝试标准 entry_points 方式（开发环境 / pip install -e）
+        # 标准 entry_points + egg-info 合并，避免仅改源码未重装时漏掉新插件
         discovered = []
+        seen_names = set()
         try:
             eps = importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP)
             try:
                 discovered = list(eps)
             except TypeError:
-                discovered = eps
+                discovered = list(eps)
+            for ep in discovered:
+                seen_names.add(ep.name if hasattr(ep, "name") else ep[0])
         except Exception:
             discovered = []
 
-        # fallback: 打包后从 omni_bot_sdk.egg-info/entry_points.txt 读取
-        if not discovered:
-            self.logger.info("标准 entry_points 未发现插件，尝试从 egg-info 文件读取...")
-            file_eps = _discover_plugins_from_file()
-            discovered = file_eps  # [(name, value), ...]
+        file_eps = _discover_plugins_from_file()
+        if file_eps:
+            for name, value in file_eps:
+                if name not in seen_names:
+                    self.logger.info(
+                        f"从 egg-info 补充发现插件: {name}"
+                    )
+                    discovered.append((name, value))
+                    seen_names.add(name)
 
         if not discovered:
             self.logger.warning("未发现任何已安装的插件。请确保插件包已正确安装。")
