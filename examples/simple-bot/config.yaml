@@ -21,8 +21,6 @@ rpa_api:
 #  callback_url: "http://127.0.0.1:8080/openApi/getUpdates/message"
   #延迟消费秒数
   process_delay: 0
-  #红包消息独立延迟秒数
-  red_envelope_delay: 10
   #自动消费
   auto_consume: true
   #api消费
@@ -129,48 +127,6 @@ plugins:
   self-msg-plugin:
     enabled: true
     priority: 1998
-  # 群红包领取记录插件
-  red-envelope-plugin:
-    enabled: false
-    priority: 1600
-    group_only: true
-    send_to_group: true
-    callback_url: ""
-  # 游戏消息收集：开始/结束表情控制下注；本地余额 + GUI 结算
-  game-message-collect-plugin:
-    enabled: true
-    priority: 1500
-    room_name: "龙虾测试群"  # 启动写入管理群列表；之后可在 GUI 下拉增删改多群
-    start_emoji_md5: "5d9862cd524a6c5401e3549bb8bf247e"
-    end_emoji_md5: "dc354209744f7d87a1356a7050494423"
-    output_dir: game_records
-    db_path: game_records/game.db
-    min_bet: 50
-    reject_over_balance: true
-    open_gui: true
-    save_format: json
-    collect_non_text: false
-    skip_system: true
-  # 「上岸知识点」定时发群（scheduled_broadcast_mode: knowledge 时生效）
-  scheduled-leader-quotes-plugin:
-    enabled: false
-    target_chat_name: 济南人才交流群   # 须与微信左侧列表里该群显示名一致
-    morning_hours: [ 9, 10, 11 ]
-    afternoon_hours: [ 14, 15, 16, 17 ]
-    interval_minutes: 10
-    content_prefix: "上岸知识点\n"
-  # 考公选择题（quiz：接口抽题，延迟后按 id 发答案解析）
-  scheduled-civil-service-quiz-plugin:
-    enabled: false
-    target_chat_name: 济南人才交流群
-    morning_hours: [ 9, 10, 11 ]
-    afternoon_hours: [ 14, 15, 16, 17 ]
-    interval_minutes: 10
-    answer_delay_seconds: 60
-    question_prefix: "考公练题\n"
-    answer_prefix: "参考答案\n"
-    api_base_url: http://218.244.140.247/prod-api
-    # category: "2"   # 可选，固定常识判断等分类；留空为全库随机
 rpa:
   # RPA相关参数
   action_delay: 0.5  # 操作延迟（秒）
