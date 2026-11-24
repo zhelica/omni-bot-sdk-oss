@@ -7,14 +7,15 @@ import logging
 import os
 from pathlib import Path
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import mss
 import mss.tools
-import torch
 from PIL import Image, ImageDraw, ImageFont
-from ultralytics import YOLO
 from omni_bot_sdk.yolo.get_model_path import get_model_path
+
+if TYPE_CHECKING:
+    from ultralytics import YOLO
 
 
 class ImageProcessor:
@@ -26,10 +27,11 @@ class ImageProcessor:
     def __init__(self):
         """
         初始化 ImageProcessor，不加载模型，仅保存配置。
+        torch/ultralytics 延迟到 setup() 再导入，避免打包启动时过早加载 c10.dll。
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.model_path = get_model_path("msg_rec.pt")
-        self.yolo: Optional[YOLO] = None
+        self.yolo: Optional[Any] = None
         self.box_color_dict = {}
         self._init_color_config()
 
@@ -39,11 +41,22 @@ class ImageProcessor:
         """
         self.logger.info(f"加载 YOLO 模型: {self.model_path}")
         try:
+            import torch
+            from ultralytics import YOLO
+
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = YOLO(self.model_path)
             model.to(device)
             self.yolo = model
             self.logger.info(f"YOLO 模型加载成功，设备: '{device}'。")
+        except OSError as e:
+            self.logger.error(
+                f"YOLO/torch 原生库加载失败: {e}。"
+                "请安装 Microsoft Visual C++ Redistributable (x64)，"
+                "并删除 _internal\\msvcp140.dll 后重试。",
+                exc_info=True,
+            )
+            raise
         except Exception as e:
             self.logger.error(f"YOLO 模型加载失败: {e}", exc_info=True)
             raise

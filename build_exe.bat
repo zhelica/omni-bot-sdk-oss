@@ -129,10 +129,16 @@ echo "%%~dp0omni-bot.exe" -c "%%~dp0config.yaml" >> "%DIST_DIR%\启动机器人.
 echo if errorlevel 1 pause >> "%DIST_DIR%\启动机器人.bat"
 
 REM ---------- 修复 torch c10.dll WinError 1114 ----------
-REM 打包进 _internal 的 msvcp140.dll 常与系统 VC 运行库冲突，导致 c10.dll 初始化失败
-if exist "%DIST_DIR%\_internal\msvcp140.dll" (
-    del /f /q "%DIST_DIR%\_internal\msvcp140.dll" >nul 2>&1
-    echo [OK] 已移除冲突的 _internal\msvcp140.dll（改用系统 VC++ 运行库）
+REM 打包进 _internal 的 VC 运行库常与系统版本冲突，导致 c10.dll 初始化失败
+for %%F in (msvcp140.dll msvcp140_1.dll msvcp140_2.dll msvcp140_atomic_wait.dll vcruntime140.dll vcruntime140_1.dll concrt140.dll) do (
+    if exist "%DIST_DIR%\_internal\%%F" (
+        del /f /q "%DIST_DIR%\_internal\%%F" >nul 2>&1
+        echo [OK] 已移除冲突的 _internal\%%F
+    )
+    if exist "%DIST_DIR%\_internal\torch\lib\%%F" (
+        del /f /q "%DIST_DIR%\_internal\torch\lib\%%F" >nul 2>&1
+        echo [OK] 已移除冲突的 torch\lib\%%F
+    )
 )
 
 REM ---------- 显示结果 ----------

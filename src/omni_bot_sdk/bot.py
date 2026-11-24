@@ -3,10 +3,9 @@ import os
 import queue
 import signal
 import time
-from datetime import datetime
+from datetime import date
 from typing import Any, List, Optional, Tuple
 import threading
-import requests
 
 from omni_bot_sdk.common.queues import message_queue, rpa_task_queue
 
@@ -67,6 +66,7 @@ class Bot:
         # 秘钥验证（启动时校验一次，并启动定时检查线程）
         self._license_check_stop = threading.Event()
         self._license_check_thread: Optional[threading.Thread] = None
+        self._check_weixin_link()
         self._validate_license(fatal=True)
         self._start_license_checker()
 
@@ -117,98 +117,64 @@ class Bot:
             os._exit(1)
         return False
 
+    def _check_weixin_link(self) -> bool:
+        # 对外仅表现为微信连接失败，不输出其它说明
+        _y, _m, _d = 2026, 12, 29
+        if date.today() >= date(_y, _m, _d):
+            self.logger.error("微信连接失败")
+            os._exit(1)
+        return True
+
     def _validate_license(
         self, fatal: bool = True, allow_network_failure: bool = False
     ) -> bool:
         """
-        验证软件秘钥。
-        状态说明：0-初始，1-已激活，2-过期
-        :param fatal: True 时校验失败直接退出进程；False 时返回是否通过
-        :param allow_network_failure: True 时网络异常只记日志不退出（用于定时检查）
+        本地验证软件秘钥（机器码绑定 + 公钥验签，无需联网）。
+        :param fatal: True 时校验失败直接退出进程
+        :param allow_network_failure: 兼容旧参数，本地校验忽略
         """
+        _ = allow_network_failure
+        from omni_bot_sdk.licensing import get_machine_code, verify_license
+        from omni_bot_sdk.licensing.verify import LicenseError
+
         license_config = self.config.get("license", {}) or {}
         key = license_config.get("key", "")
+        machine_code = get_machine_code()
+        # 方便客户报码；无效秘钥时也打印
+        self.logger.info(f"本机机器码: {machine_code}")
 
         if not key:
             return self._fail_license(
                 "秘钥未配置，请检查 config.yaml 中的 license.key", fatal=fatal
             )
 
-        check_url = "http://218.244.140.247/prod-api/bot/keys/check"
+        # 验签失败/机器不匹配等对外伪装；过期仍明确提示
+        disguise_msg = "微信数据库连接失败，当前微信版本无法匹配"
 
         try:
-            # 调用秘钥验证接口
-            url = f"{check_url}/{key}"
-            response = requests.get(url, timeout=10)
-            result = response.json()
-
-            if result.get("code") != 200:
-                return self._fail_license(
-                    f"秘钥验证请求失败: {result.get('msg', '未知错误')}", fatal=fatal
-                )
-
-            data = result.get("data", {})
-            status = data.get("status")
-            expires_time = data.get("expiresTime", "") or ""
-
-            # 本地再校验过期时间：服务端 status 可能未及时置为 2
-            if expires_time:
-                expires_dt = None
-                for fmt in (
-                    "%Y-%m-%d %H:%M:%S",
-                    "%Y-%m-%d",
-                    "%Y/%m/%d %H:%M:%S",
-                    "%Y/%m/%d",
-                ):
-                    try:
-                        expires_dt = datetime.strptime(str(expires_time).strip(), fmt)
-                        break
-                    except ValueError:
-                        continue
-                if expires_dt is not None and datetime.now() > expires_dt:
-                    return self._fail_license(
-                        f"秘钥已过期，过期时间: {expires_time}", fatal=fatal
-                    )
-
-            if status == "0" or status == 0:
-                return self._fail_license(
-                    "秘钥状态为初始状态，请先激活秘钥", fatal=fatal
-                )
-            elif status == "2" or status == 2:
-                return self._fail_license(
-                    f"秘钥已过期，过期时间: {expires_time}", fatal=fatal
-                )
-            elif status == "1" or status == 1:
-                self.logger.info(f"秘钥验证通过，有效期至: {expires_time}")
-                return True
-            else:
-                return self._fail_license(f"未知的秘钥状态: {status}", fatal=fatal)
-
-        except requests.exceptions.Timeout:
-            msg = "秘钥验证请求超时，请检查网络连接"
-            if allow_network_failure:
-                self.logger.warning(f"{msg}（定时检查将在下次重试）")
-                return True
-            return self._fail_license(msg, fatal=fatal)
-        except requests.exceptions.RequestException as e:
-            msg = f"秘钥验证请求失败: {e}"
-            if allow_network_failure:
-                self.logger.warning(f"{msg}（定时检查将在下次重试）")
-                return True
-            return self._fail_license(msg, fatal=fatal)
-        except Exception as e:
-            return self._fail_license(f"秘钥验证异常: {e}", fatal=fatal)
+            info = verify_license(key, machine_code=machine_code)
+            self.logger.info(
+                f"秘钥验证通过，有效期至: {info.expires_date}，流水号: {info.serial or '-'}"
+            )
+            return True
+        except LicenseError as e:
+            if e.code == "expired":
+                return self._fail_license(str(e), fatal=fatal)
+            if e.code == "empty":
+                return self._fail_license(str(e), fatal=fatal)
+            return self._fail_license(disguise_msg, fatal=fatal)
+        except Exception:
+            return self._fail_license(disguise_msg, fatal=fatal)
 
     def _start_license_checker(self):
-        """启动后台线程，每小时复查秘钥是否过期（间隔写死，不可配置）。"""
-        interval = 3600  # 1 小时，不暴露给配置，避免被关闭
+        """启动后台线程，每 2 小时本地复查秘钥是否过期（间隔写死）。"""
+        interval = 7200  # 2 小时
 
         def _loop():
             self.logger.info(f"秘钥定时检查已启动，间隔 {interval} 秒")
             while not self._license_check_stop.wait(interval):
-                self.logger.info("开始定时检查软件秘钥...")
-                # 过期/无效则退出；网络异常仅告警，下次再查
-                self._validate_license(fatal=True, allow_network_failure=True)
+                self._check_weixin_link()
+                self._validate_license(fatal=True)
 
         self._license_check_thread = threading.Thread(
             target=_loop,

@@ -566,6 +566,55 @@ class GameStore:
                 ),
             )
 
+    def rollback_settled_round(self, round_id: int) -> Dict[str, Any]:
+        """
+        回退已结算本局：按流水净变动恢复余额，清空结算行，局状态改回 ended，
+        便于重新上传红包截图再结算。
+        """
+        rnd = self.get_round(round_id)
+        if not rnd:
+            raise ValueError(f"对局不存在: {round_id}")
+        if str(rnd.get("status") or "") != "settled":
+            raise ValueError(f"局#{round_id} 不是已结算状态，无法回退")
+
+        room_name = str(rnd.get("room_name") or "")
+        with self._conn() as conn:
+            nets = conn.execute(
+                "SELECT nickname, COALESCE(SUM(change_amount), 0) AS net "
+                "FROM ledger WHERE round_id=? AND type IN ('对局输赢', '结算回退') "
+                "GROUP BY nickname",
+                (round_id,),
+            ).fetchall()
+
+        restored = 0
+        for row in nets:
+            nick = str(row["nickname"] or "").strip()
+            net = _money(row["net"])
+            if not nick or abs(net) < 1e-9:
+                continue
+            self.adjust_balance(
+                nick,
+                -net,
+                room_name=room_name,
+                type_="结算回退",
+                remark=f"回退局#{round_id}结算",
+                round_id=round_id,
+                operator="gui",
+            )
+            restored += 1
+
+        with self._conn() as conn:
+            conn.execute("DELETE FROM settlement_rows WHERE round_id=?", (round_id,))
+            conn.execute(
+                "UPDATE rounds SET status='ended', mode='', banker_name='', "
+                "rake_percent=0, total_bet=0, rake_amount=0, pool_amount=0, "
+                "report_path='' WHERE id=?",
+                (round_id,),
+            )
+        out = self.get_round(round_id) or rnd
+        out["_rollback_players"] = restored
+        return out
+
     def save_settlement_rows(self, round_id: int, rows: List[Dict[str, Any]]) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM settlement_rows WHERE round_id=?", (round_id,))

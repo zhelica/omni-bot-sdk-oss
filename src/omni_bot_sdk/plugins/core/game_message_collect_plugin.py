@@ -720,7 +720,7 @@ class GameMessageCollectPlugin(Plugin):
             if player:
                 return player, _safe_str(player.get("nickname") or name)
 
-        # 备注 001#洋洋 与账户 001#chat：按 # 前编号关联
+        # 备注 #001#洋洋 与账户 #001#chat：按两 # 间编号关联（兼容旧 001#xxx）
         from omni_bot_sdk.game.settlement import _remark_match_key
 
         for name in candidates:

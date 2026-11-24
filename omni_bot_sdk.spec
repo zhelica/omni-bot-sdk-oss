@@ -365,10 +365,21 @@ if proto_src.exists():
         (str(proto_src), "omni_bot_sdk/weixin/parser/util/protocbuf"),
     ]
 
+# 本地秘钥验签公钥（漏打会导致激活码验签失败并伪装成微信数据库错误）
+license_datas = []
+license_pem = (
+    project_root / "src" / "omni_bot_sdk" / "licensing" / "public_key.pem"
+)
+if license_pem.exists():
+    license_datas = [
+        (str(license_pem), "omni_bot_sdk/licensing"),
+    ]
+
 # ============== 合并所有数据文件 ==============
 
 datas = (
     proto_datas
+    + license_datas
     + egg_info_datas
     + yolo_datas
     + yara_datas
@@ -467,6 +478,23 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# 避免把冲突的 VC 运行库打进包（与系统 VC++ 不一致时 c10.dll 会 WinError 1114）
+_vc_conflict = {
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "concrt140.dll",
+}
+a.binaries = [
+    b
+    for b in a.binaries
+    if Path(str(b[0])).name.lower() not in _vc_conflict
+    and Path(str(b[1])).name.lower() not in _vc_conflict
+]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

@@ -348,6 +348,12 @@ class GameAdminApp(tk.Tk):
         ttk.Button(
             actions, text="结算本局", command=self._on_settle, style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            actions,
+            text="回退本局结算",
+            command=self._rollback_last_settlement,
+            style="Danger.TButton",
+        ).pack(side=tk.LEFT, padx=4)
 
         room_bar = ttk.Frame(self, padding=(18, 10, 18, 4))
         room_bar.pack(fill=tk.X)
@@ -472,8 +478,23 @@ class GameAdminApp(tk.Tk):
         # 结算结果页
         result_frame = ttk.Frame(notebook, style="Card.TFrame", padding=14)
         notebook.add(result_frame, text="  最近结算  ")
-        self.result_label = ttk.Label(result_frame, text="尚未结算", style="Section.TLabel")
-        self.result_label.pack(anchor=tk.W)
+        result_top = ttk.Frame(result_frame, style="Card.TFrame")
+        result_top.pack(fill=tk.X)
+        self.result_label = ttk.Label(
+            result_top, text="尚未结算", style="Section.TLabel"
+        )
+        self.result_label.pack(side=tk.LEFT, anchor=tk.W)
+        ttk.Button(
+            result_top,
+            text="回退本局结算",
+            command=self._rollback_last_settlement,
+            style="Danger.TButton",
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        ttk.Label(
+            result_frame,
+            text="截图识别错误时可回退：恢复余额并把本局改回「已结束」，即可重新上传结算",
+            style="CardMuted.TLabel",
+        ).pack(anchor=tk.W, pady=(4, 0))
         res_cols = ("seq", "nickname", "bet", "point", "delta", "before", "after", "note")
         self.result_tree = ttk.Treeview(
             result_frame, columns=res_cols, show="headings", height=16, style="Game.Treeview"
@@ -536,10 +557,13 @@ class GameAdminApp(tk.Tk):
             stats_top, text="刷新统计", command=self._refresh_stats, style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=3)
         ttk.Button(
-            stats_top, text="导出抽水Excel", command=self._export_rake_xlsx, style="Ghost.TButton"
+            stats_top, text="导出抽水Excel", command=self._export_rake_xlsx, style="Primary.TButton"
         ).pack(side=tk.LEFT, padx=3)
         ttk.Button(
-            stats_top, text="数字组合权重", command=self._edit_digit_weight, style="Ghost.TButton"
+            stats_top,
+            text="导出日汇总Excel",
+            command=self._export_daily_summary_xlsx,
+            style="Primary.TButton",
         ).pack(side=tk.LEFT, padx=3)
         ttk.Label(
             stats_top,
@@ -636,75 +660,6 @@ class GameAdminApp(tk.Tk):
             "有庄": "有庄",
         }
         return mapping.get(str(mode or ""), str(mode or "-"))
-
-    def _edit_digit_weight(self) -> None:
-        """无庄同点时数字组合权重：左侧数字更强，默认 0>1>2>...>9。"""
-        win = tk.Toplevel(self)
-        win.title("数字组合权重配置")
-        win.configure(bg=UI["bg"])
-        win.transient(self)
-        win.grab_set()
-        win.minsize(560, 360)
-        self._center_window(win, 580, 380)
-
-        cur = self.store.get_digit_weight_order()
-        ttk.Label(
-            win,
-            text=(
-                "无庄模式：点数相同比较数字组合。\n"
-                "按顺序逐位比较，左侧数字优先更强。\n"
-                "默认 0123456789 表示 0>1>2>…>9\n"
-                "示例：同9点 009＞018＞072"
-            ),
-            justify=tk.LEFT,
-        ).pack(anchor=tk.W, padx=16, pady=(16, 8))
-
-        row = ttk.Frame(win)
-        row.pack(fill=tk.X, padx=16, pady=8)
-        ttk.Label(row, text="权重顺序:").pack(side=tk.LEFT)
-        order_var = tk.StringVar(value=cur)
-        ttk.Entry(row, textvariable=order_var, width=24).pack(side=tk.LEFT, padx=8)
-
-        preview_var = tk.StringVar()
-
-        def _refresh_preview(*_):
-            raw = "".join(ch for ch in order_var.get() if ch.isdigit())
-            seen = set()
-            uniq = []
-            for ch in raw:
-                if ch not in seen:
-                    seen.add(ch)
-                    uniq.append(ch)
-            for d in "0123456789":
-                if d not in seen:
-                    uniq.append(d)
-            preview_var.set(" > ".join(uniq[:10]))
-
-        order_var.trace_add("write", _refresh_preview)
-        _refresh_preview()
-        ttk.Label(win, textvariable=preview_var, foreground="#1F4E79").pack(
-            anchor=tk.W, padx=16
-        )
-
-        btns = ttk.Frame(win)
-        btns.pack(fill=tk.X, padx=16, pady=16)
-
-        def save():
-            saved = self.store.set_digit_weight_order(order_var.get())
-            messagebox.showinfo(
-                "已保存",
-                f"权重已更新：{' > '.join(saved)}\n无庄结算立即生效。",
-                parent=win,
-            )
-            self.status_var.set(f"数字组合权重: {'>'.join(saved)}")
-            win.destroy()
-
-        def reset():
-            order_var.set("0123456789")
-
-        ttk.Button(btns, text="恢复默认", command=reset).pack(side=tk.LEFT)
-        ttk.Button(btns, text="保存", command=save).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btns, text="取消", command=win.destroy).pack(side=tk.RIGHT)
 
     def _desktop_dir(self) -> Path:
         home = Path.home()
@@ -962,6 +917,48 @@ class GameAdminApp(tk.Tk):
         )
         messagebox.showinfo("导出完成", f"已导出: {path}", parent=self)
         self.status_var.set(f"已导出抽水台账: {path}")
+
+    def _export_daily_summary_xlsx(self) -> None:
+        from datetime import datetime as _dt
+
+        from omni_bot_sdk.game.export_xlsx import export_styled_table
+
+        day = (self.stats_date_var.get() or "").strip() or _dt.now().strftime("%Y-%m-%d")
+        rows = self.store.player_daily_summary(self.room_name, day)
+        if not rows:
+            messagebox.showinfo("提示", f"{day} 没有可导出的玩家日汇总", parent=self)
+            return
+        headers = ["日期", "用户", "有效下注", "有效局数", "无效局数", "当日输赢"]
+        data = []
+        for r in rows:
+            data.append(
+                [
+                    r.get("date") or day,
+                    r.get("nickname") or "",
+                    r.get("valid_bet_amount"),
+                    r.get("valid_round_count"),
+                    r.get("invalid_round_count"),
+                    r.get("win_loss"),
+                ]
+            )
+        safe_room = self.room_name or "全部群"
+        path = Path(self.engine.report_dir) / f"玩家日汇总_{safe_room}_{day}.xlsx"
+        export_styled_table(
+            path,
+            headers,
+            data,
+            title=f"{safe_room} 玩家日汇总 {day}",
+            col_widths={
+                "日期": 12,
+                "用户": 18,
+                "有效下注": 12,
+                "有效局数": 10,
+                "无效局数": 10,
+                "当日输赢": 12,
+            },
+        )
+        messagebox.showinfo("导出完成", f"已导出: {path}", parent=self)
+        self.status_var.set(f"已导出玩家日汇总: {path}")
 
     def _export_selected_round_flow(self, tree: ttk.Treeview) -> None:
         from omni_bot_sdk.game.export_xlsx import export_styled_table
@@ -1963,6 +1960,40 @@ class GameAdminApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("失败", str(e), parent=self)
 
+    def _rollback_last_settlement(self) -> None:
+        """回退最近已结算局：恢复余额，局改回已结束，可重新上传红包图结算。"""
+        if not self.room_name:
+            messagebox.showwarning("提示", "请先填写群名称", parent=self)
+            return
+        rounds = self.store.list_rounds(self.room_name, limit=30)
+        rnd = next((r for r in rounds if r.get("status") == "settled"), None)
+        if not rnd:
+            messagebox.showinfo("提示", "当前群没有已结算的对局可回退", parent=self)
+            return
+        round_id = int(rnd["id"])
+        if not messagebox.askyesno(
+            "确认回退结算",
+            f"回退局#{round_id} 的结算？\n"
+            "• 按本局流水净变动恢复各用户余额\n"
+            "• 清除本局结算明细\n"
+            "• 局状态改回「已结束」，可重新上传红包截图结算\n"
+            "• 下注记录保留不变",
+            parent=self,
+        ):
+            return
+        try:
+            out = self.store.rollback_settled_round(round_id)
+            n = int(out.get("_rollback_players") or 0)
+            self.refresh_all()
+            messagebox.showinfo(
+                "完成",
+                f"局#{round_id} 已回退\n已恢复 {n} 名用户余额\n请重新点击「结算本局」上传截图",
+                parent=self,
+            )
+            self.status_var.set(f"局#{round_id} 结算已回退，可重新结算")
+        except Exception as e:
+            messagebox.showerror("回退失败", str(e), parent=self)
+
     def _pick_round_for_settle(self) -> Optional[Dict[str, Any]]:
         if not self.room_name:
             messagebox.showwarning("提示", "请先填写群名称", parent=self)
@@ -2198,7 +2229,6 @@ class GameAdminApp(tk.Tk):
                     result_rows, summary = self.engine.settle_no_banker(
                         rows,
                         rake_percent,
-                        digit_weight_order=self.store.get_digit_weight_order(),
                     )
                 warns = summary.get("warnings") or []
                 if warns:

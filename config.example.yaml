@@ -1,6 +1,7 @@
 dbkey: XXX   # 数据库加密密钥，必须设置
 
-# 软件秘钥
+# 软件秘钥（本地机器码绑定；用 tools/license_tool 签发）
+# 客户先运行: python tools/license_tool/show_machine_code.py 把机器码发给你
 license:
   key: "your-license-key"
 

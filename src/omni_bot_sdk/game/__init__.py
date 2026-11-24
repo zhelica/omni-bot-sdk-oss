@@ -5,7 +5,9 @@ from omni_bot_sdk.game.settlement import (
     SettlementEngine,
     amount_to_combo,
     amount_to_point,
+    combo_compare_key,
     combo_weight_key,
+    combos_equal,
 )
 
 __all__ = [
@@ -13,5 +15,7 @@ __all__ = [
     "SettlementEngine",
     "amount_to_point",
     "amount_to_combo",
+    "combo_compare_key",
     "combo_weight_key",
+    "combos_equal",
 ]

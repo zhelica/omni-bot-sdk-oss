@@ -26,42 +26,62 @@ def amount_to_point(amount: float) -> int:
     return sum(digits) % 10
 
 
+# 写死数字强度：0>9>8>7>6>5>4>3>2>1（不再可配置）
+DIGIT_STRENGTH_ORDER = "0987654321"
+
+
+def digit_strength(ch: str) -> int:
+    """单个数字强度，越大越强。"""
+    try:
+        return len(DIGIT_STRENGTH_ORDER) - 1 - DIGIT_STRENGTH_ORDER.index(str(ch))
+    except ValueError:
+        return -1
+
+
+def normalize_combo(combo: str) -> str:
+    """
+    先按数字强度从强到弱重排，再用于对比。
+    例：045 → 054；054 → 054；036 → 063
+    """
+    digits = [ch for ch in (combo or "") if ch.isdigit()]
+    return "".join(sorted(digits, key=digit_strength, reverse=True))
+
+
 def amount_to_combo(amount: float) -> str:
-    """红包金额数字组合，例：0.09→009，0.18→018，2.18→218。"""
+    """
+    红包金额 → 组合：取数字后按 0>9>…>1 重排。
+    例：0.45→045→054；0.36→036→063；2.18→218→281
+    """
     text = f"{float(amount):.2f}"
-    return "".join(ch for ch in text if ch.isdigit())
+    raw = "".join(ch for ch in text if ch.isdigit())
+    return normalize_combo(raw)
 
 
-def digit_strength_map(order: str) -> Dict[str, int]:
-    """
-    将权重顺序转为分值：左侧最强。
-    默认 order=0123456789 → 0分最高，9分最低。
-    """
-    order = "".join(ch for ch in (order or "") if ch.isdigit()) or "0123456789"
-    # 去重保序并补齐
-    seen = set()
-    uniq = []
-    for ch in order:
-        if ch not in seen:
-            seen.add(ch)
-            uniq.append(ch)
-    for d in "0123456789":
-        if d not in seen:
-            uniq.append(d)
-    n = len(uniq)
-    return {ch: n - 1 - i for i, ch in enumerate(uniq[:10])}
+def combo_sorted_by_strength(combo: str) -> Tuple[str, ...]:
+    """兼容：返回重排后的数字元组。"""
+    return tuple(normalize_combo(combo))
 
 
-def combo_weight_key(combo: str, order: str) -> Tuple[int, ...]:
+def combo_compare_key(combo: str) -> Tuple[int, ...]:
     """
-    同点比较用：逐位按权重，先比第一位再比第二位。
-    返回元组，数值越大越优先（配合 reverse=True）。
+    组合已（或先）重排后，从左到右比强度。
+    例：063 与 054 → 先比 0=0，再比 6>5 → 063 胜。
     """
-    strength = digit_strength_map(order)
-    digits = "".join(ch for ch in (combo or "") if ch.isdigit())
-    if not digits:
+    sorted_combo = normalize_combo(combo)
+    if not sorted_combo:
         return (-1,)
-    return tuple(strength.get(ch, -1) for ch in digits)
+    return tuple(digit_strength(ch) for ch in sorted_combo)
+
+
+def combos_equal(a: str, b: str) -> bool:
+    """重排后字符串相同则相等（045==054）。"""
+    return normalize_combo(a) == normalize_combo(b)
+
+
+def combo_weight_key(combo: str, order: str = "") -> Tuple[int, ...]:
+    """兼容旧名；order 已忽略。"""
+    _ = order
+    return combo_compare_key(combo)
 
 
 def _norm_name(name: str) -> str:
@@ -70,14 +90,26 @@ def _norm_name(name: str) -> str:
 
 def _remark_match_key(name: str) -> str:
     """
-    备注匹配键：统一备注格式如 001#洋洋 / 001#chat。
-    取第一个 # 前的编号做比对（OCR 后半段易错）；无 # 则用全名。
+    备注匹配键（只取编号，隔离后面 @微信 / @企业名）：
+    - 新格式 #167#tanwei@微信 → 两 # 之间的 167
+    - 旧格式 167#tanwei → 第一个 # 前的 167（兼容）
+    - 无可用编号 → 全名
     """
     raw = (name or "").strip()
     if not raw:
         return ""
-    if "#" in raw:
-        raw = raw.split("#", 1)[0].strip()
+    # 新格式：#编号#名称…
+    m = re.search(r"#(\d{1,6})#", raw)
+    if m:
+        return _norm_name(m.group(1))
+    # 旧格式：编号#名称…
+    head = raw.split("#", 1)[0].strip() if "#" in raw else ""
+    if re.fullmatch(r"\d{1,6}", head or ""):
+        return _norm_name(head)
+    # OCR 偶发 #167tanwei（缺中间 #）
+    m = re.match(r"^#(\d{1,6})", raw)
+    if m:
+        return _norm_name(m.group(1))
     return _norm_name(raw)
 
 
@@ -86,7 +118,7 @@ def match_claim_name(
 ) -> Optional[Dict[str, Any]]:
     """
     将下注备注匹配到 OCR 领取记录。
-    优先用 # 前编号精确匹配；再尝试全名精确/包含匹配。
+    优先用 #编号# 中间编号精确匹配；再尝试全名精确/包含匹配。
     """
     target_key = _remark_match_key(nickname)
     target_full = _norm_name(nickname)
@@ -101,7 +133,7 @@ def match_claim_name(
         cn = _norm_name(claim_name)
         if not ck and not cn:
             continue
-        # 1) 编号键精确匹配：001#洋洋 ↔ 001#chat / 001#xxx
+        # 1) 编号键：#167#a@微信 ↔ #167#b@企业名 / 旧 167#xxx
         if target_key and ck and target_key == ck:
             key_exact.append(c)
         # 2) 全名精确
@@ -142,12 +174,14 @@ def resolve_packet_claim(
     aliases: Optional[List[str]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], str, List[str]]:
     """
-    按玩法 2.3 解析点数来源（庄家与闲家相同，不再约束头/尾包）：
-    - 有领取记录：按备注 # 前编号匹配（完整备注仅用于展示）
-    - 无领取记录：从上往下取第 3 个；不足 3 个则降级取最后一个并告警
-    is_banker / aliases 保留兼容。
+    按玩法解析点数来源：
+    - 有领取记录：按备注 #编号# 中间编号匹配（完整备注仅用于展示）
+    - 无领取记录兜底（从下方领取列表自上而下，不含顶部本人金额）：
+      · 无庄：取第 2 个
+      · 有庄：取第 3 个
+      · 不足则降级取最后一个并告警
+    aliases 保留兼容。
     """
-    _ = is_banker  # 庄家抢包不再单独约束
     _ = aliases  # 红包只比对备注编号，忽略别名兜底
     warnings: List[str] = []
     n = len(ordered_claims or [])
@@ -155,11 +189,16 @@ def resolve_packet_claim(
     if matched:
         return matched, "", warnings
 
-    # 统一规则：未抢包取列表最上方起第 3 个（庄家/闲家相同）
-    if n >= 3:
-        return ordered_claims[2], "未抢包取自上而下第3个", warnings
+    # 无庄取第2个(index=1)；有庄取第3个(index=2)
+    need_nth = 3 if is_banker else 2
+    need_idx = need_nth - 1
+    note = f"未抢包取自上而下第{need_nth}个"
+    if n > need_idx:
+        return ordered_claims[need_idx], note, warnings
     if n >= 1:
-        warnings.append(f"未抢包需自上而下第3个，但仅{n}个红包，降级取最后一个")
+        warnings.append(
+            f"未抢包需自上而下第{need_nth}个，但仅{n}个红包，降级取最后一个"
+        )
         return ordered_claims[-1], "未抢包降级取最后一个", warnings
     warnings.append(f"玩家[{nickname}]未抢包且无红包记录")
     return None, "无红包记录", warnings
@@ -224,7 +263,7 @@ class SettlementEngine:
                     if str(p.get("wxid") or "").strip() == str(wxid).strip():
                         player = p
                         break
-            # 备注 001#洋洋 与账户 001#chat 用编号键关联
+            # 备注 #001#洋洋 与账户 #001#chat 用编号键关联
             if not player and claim_nick:
                 claim_key = _remark_match_key(claim_nick)
                 if claim_key:
@@ -260,7 +299,7 @@ class SettlementEngine:
                 or _norm_name(claim_nick) == banker_key
                 or _norm_name(account_nick) == banker_key
             )
-            # 红包按备注 # 前编号比对
+            # 红包按备注 #编号# 中间编号比对
             claim, claim_note, warns = resolve_packet_claim(
                 claim_nick,
                 claims,
@@ -270,8 +309,14 @@ class SettlementEngine:
             packet = float(claim["amount"]) if claim else 0.0
             point = amount_to_point(packet) if claim else -1
             combo = amount_to_combo(packet) if claim else ""
+            # 未抢包借用他人金额：不算抢包先后，同额必须排在真实抢到者后面
+            claim_borrowed = bool(claim_note)
             order_index = -1
-            if claim and claim.get("order_index") is not None:
+            if (
+                claim
+                and not claim_borrowed
+                and claim.get("order_index") is not None
+            ):
                 try:
                     order_index = int(claim.get("order_index"))
                 except (TypeError, ValueError):
@@ -293,6 +338,7 @@ class SettlementEngine:
                     "point": point,
                     "combo": combo,
                     "order_index": order_index,
+                    "claim_borrowed": claim_borrowed,
                     "has_claim": bool(claim),
                     "balance_before": float(player.get("balance") or 0),
                     "claim_name": (claim or {}).get("name") or "",
@@ -312,11 +358,10 @@ class SettlementEngine:
         """
         无庄大吃小：先按总下注抽水，再按名次依次还本、赔付。
 
-        例：总注 590，抽 5% → 池 560.5
-        第1名 180：还本180+赔180 → 剩 200.5
-        第2名 260：池不够还本 → 把剩余 200.5 全部给他（加减 -59.5），池清零
-        第3名及之后：奖池为 0，押注全扣（加减=-押注），不再落败返还
+        排名：点数 → 组合（忽略顺序，按 0>9>…>1 先比最大位）→
+        真实抢包优先于未抢包借用金额 → 完全相同则红包列表靠下者（先抢）优先。
         """
+        _ = digit_weight_order  # 已废弃，保留参数兼容旧调用
         active = [r for r in rows if r.get("is_valid", True) and not r.get("stats_only")]
         stats_rows = [r for r in rows if r.get("stats_only") or not r.get("is_valid", True)]
 
@@ -325,20 +370,22 @@ class SettlementEngine:
         rake = round(total_bet * float(rake_percent) / 100.0, 2)
         pool = round(total_bet - rake, 2)
         remain = pool
-        order = digit_weight_order or self.store.get_digit_weight_order()
 
         def _rank_key(r: Dict[str, Any]) -> Tuple[Any, ...]:
             combo = r.get("combo") or amount_to_combo(float(r.get("packet_amount") or 0))
             idx = r.get("order_index")
             try:
-                idx_i = int(idx) if idx is not None and int(idx) >= 0 else 10**9
+                # 无位置/借用金额时用 -1，reverse 后排最后
+                idx_i = int(idx) if idx is not None and int(idx) >= 0 else -1
             except (TypeError, ValueError):
-                idx_i = 10**9
+                idx_i = -1
+            # 点数/组合相同：真实抢包 > 借用；同为真实则靠下（先抢）优先
             return (
                 1 if r.get("has_claim") else 0,
                 int(r.get("point", -1)),
-                combo_weight_key(combo, order),
-                -idx_i,
+                combo_compare_key(combo),
+                0 if r.get("claim_borrowed") else 1,
+                idx_i,
             )
 
         ranked = sorted(active, key=_rank_key, reverse=True)
@@ -466,7 +513,7 @@ class SettlementEngine:
             "pool_amount": pool,
             "pool_remain": remain_after,
             "loser_refund_total": round(refund_total, 2),
-            "digit_weight_order": order,
+            "digit_strength_order": DIGIT_STRENGTH_ORDER,
             "warnings": list(self.last_warnings),
         }
         return result_rows, summary
@@ -483,8 +530,8 @@ class SettlementEngine:
         有庄：每个有效闲家独立与庄家比点；同点庄胜；压多少赔多少。
         庄家不参与下注、不取采购数量，结算表只保留一条庄家汇总行；
         庄家自己的下注/失败记录一律忽略，不重复入表。
-        抽水=有效总下注×比例，额外从庄家余额扣除（不从押注/奖池里扣）。
-        例：押注10000、抽5% → 抽水500；全输时庄家最多赔10000，另扣500，建议余额≥10500。
+        比大小：先比点数；同点再比三数字组合（忽略顺序，0>9>…>1 先比最大位）；
+        点数与组合都相同则庄胜。抽水额外从庄家余额扣除。
         """
         banker_key = _norm_name(banker_name)
         banker_id = _remark_match_key(banker_name)
@@ -608,17 +655,19 @@ class SettlementEngine:
             }
 
         banker_point = int(banker.get("point", -1))
+        banker_combo = amount_to_combo(float(banker.get("packet_amount") or 0))
         banker_delta = 0.0
         result_rows: List[Dict[str, Any]] = []
 
         for p in players:
             bet = float(p["bet_amount"])
             p_point = int(p.get("point", -1))
+            p_combo = p.get("combo") or amount_to_combo(float(p.get("packet_amount") or 0))
             extra = p.get("note") or ""
             bal_before = float(p["balance_before"])
             principal = 0.0
             payout = 0.0
-            # 有庄一对一：闲家胜 → 还本+1:1赔付；闲家负/同点庄胜 → 不还本不赔
+            # 有庄一对一：先比点数；同点再比组合；都相同庄胜
             # 超市余额 = 原余额 - 押注 + 本金 + 赔付（与无庄同一公式）
             if (
                 not p.get("has_claim")
@@ -631,10 +680,33 @@ class SettlementEngine:
             elif p_point > banker_point:
                 principal = bet
                 payout = bet
-                note = f"闲家{p_point}点 > 庄家{banker_point}点；还本{principal:.2f}+赔{payout:.2f}"
+                note = (
+                    f"闲家{p_point}点 > 庄家{banker_point}点；"
+                    f"还本{principal:.2f}+赔{payout:.2f}"
+                )
+                paid = True
+            elif p_point < banker_point:
+                note = f"闲家{p_point}点 < 庄家{banker_point}点，庄胜"
+                paid = False
+            elif combos_equal(p_combo, banker_combo):
+                # 同点且三数字完全相同（忽略顺序）→ 庄胜
+                note = (
+                    f"同{p_point}点且组合相同"
+                    f"（闲{p_combo}/庄{banker_combo}），庄胜"
+                )
+                paid = False
+            elif combo_compare_key(p_combo) > combo_compare_key(banker_combo):
+                principal = bet
+                payout = bet
+                note = (
+                    f"同{p_point}点；组合闲{p_combo}>庄{banker_combo}；"
+                    f"还本{principal:.2f}+赔{payout:.2f}"
+                )
                 paid = True
             else:
-                note = f"闲家{p_point}点 <= 庄家{banker_point}点，庄胜"
+                note = (
+                    f"同{p_point}点；组合闲{p_combo}<庄{banker_combo}，庄胜"
+                )
                 paid = False
             bal_after = round(bal_before - bet + principal + payout, 2)
             delta = round(bal_after - bal_before, 2)
@@ -738,7 +810,7 @@ class SettlementEngine:
     ) -> Path:
         """写入余额、落库报表行、导出报表。无效/统计行不改余额。"""
         for row in result_rows:
-            # 报表用完整备注；扣余额用账户名（可能同为 001#xxx）
+            # 报表用完整备注；扣余额用账户名（可能同为 #001#xxx）
             nick = row.get("account_nickname") or row["nickname"]
             delta = float(row["delta"])
             if row.get("stats_only"):
@@ -1206,8 +1278,9 @@ class SettlementEngine:
                 if invalid:
                     bg, fg = "#FFC7CE", "#9C0006"
                 elif appendix:
-                    bg = "#FFF8E7" if ri % 2 == 0 else "#F3EAD7"
-                    fg = "#5C4A1F"
+                    # 未下注附录：青绿底 + 深蓝字，避免黑黄对比不清
+                    bg = "#E6F7F1" if ri % 2 == 0 else "#D0EFE4"
+                    fg = "#0B3D5C"
                 else:
                     bg = "#FFFFFF" if ri % 2 == 0 else "#DDEBF7"
                     fg = "#000000"
@@ -1235,18 +1308,18 @@ class SettlementEngine:
         # 分隔 + 附录（未下注有余额）
         if has_appendix:
             sep_y = head_h + row_h * (1 + len(rows))
-            draw.rectangle([0, sep_y, table_w, sep_y + sep_h], fill="#E7E0D4")
-            draw.line([(0, sep_y), (table_w, sep_y)], fill="#8A7A5C", width=2)
+            draw.rectangle([0, sep_y, table_w, sep_y + sep_h], fill="#B8E0D2")
+            draw.line([(0, sep_y), (table_w, sep_y)], fill="#2A6F97", width=2)
             draw.line(
                 [(0, sep_y + sep_h - 1), (table_w, sep_y + sep_h - 1)],
-                fill="#8A7A5C",
+                fill="#2A6F97",
                 width=1,
             )
             sw = probe.textlength(appendix_label, font=sep_font)
             draw.text(
                 ((table_w - sw) / 2, sep_y + (sep_h - 18) / 2),
                 appendix_label,
-                fill="#5C4A1F",
+                fill="#0B3D5C",
                 font=sep_font,
             )
             _draw_data_rows(sep_y + sep_h, appendix_rows)
