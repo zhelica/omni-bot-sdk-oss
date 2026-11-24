@@ -237,7 +237,6 @@ class Bot:
         rpa_api_config = self.config.get("rpa_api", {})
         auto_consume = rpa_api_config.get("auto_consume", True)
         process_delay = rpa_api_config.get("process_delay", 30)
-        red_envelope_delay = rpa_api_config.get("red_envelope_delay", 60)
         callback_url = rpa_api_config.get("callback_url", "")
 
         weixin_status_service = WeixinStatusService(
@@ -248,7 +247,6 @@ class Bot:
             auto_consume=auto_consume,
             delay_seconds=process_delay,
             callback_url=callback_url,
-            red_envelope_delay=red_envelope_delay,
         )
         message_factory_service = MessageFactoryService(self.user_info, self.db)
         processor_service = ProcessorService(

@@ -19,8 +19,6 @@ rpa_api:
   callback_url:
   #延迟消费秒数
   process_delay: 10
-  #红包消息独立延迟秒数（打开「看看大家的手气」前等待）
-  red_envelope_delay: 60
   #内置插件自动消费
   auto_consume: true
   #api调用发送消息接口消费
@@ -77,54 +75,10 @@ plugins:
     openai_model: deepseek-chat  # 使用的模型名
     prompt: 你是一个聊天机器人，请根据用户的问题给出回答。历史对话：{{chat_history}} 当前时间：{{time_now}} 
       你的昵称：{{self_nickname}} 群昵称：{{room_nickname}} 消息来自于：{{contact_nickname}}
-  # 定时群发模式: knowledge | quiz
-  scheduled_broadcast_mode: knowledge
-  scheduled-leader-quotes-plugin:
-    enabled: false
-    target_chat_name: 济南人才交流群
-    morning_hours: [9, 10, 11]
-    afternoon_hours: [14, 15, 16, 17]
-    interval_minutes: 60
-    content_prefix: ""
-  scheduled-civil-service-quiz-plugin:
-    enabled: false
-    target_chat_name: 济南人才交流群
-    morning_hours: [9, 10, 11]
-    afternoon_hours: [14, 15, 16, 17]
-    interval_minutes: 10
-    answer_delay_seconds: 60
-    question_prefix: "考公练题\n"
-    answer_prefix: "参考答案\n"
-    api_base_url: http://218.244.140.247/prod-api
-    category: ""
   # 自发消息插件
   self-msg-plugin:
     enabled: true
     priority: 1998
-  # 群红包领取记录插件
-  red-envelope-plugin:
-    enabled: true
-    priority: 1600
-    group_only: true
-    # 抓取成功后把领取明细发回群聊
-    send_to_group: true
-    # 领取明细回调，空则使用 rpa_api.callback_url
-    callback_url: ""
-  # 游戏消息收集插件（表情开局/收局 + 本地余额 GUI 结算）
-  game-message-collect-plugin:
-    enabled: false
-    priority: 1500
-    room_name: ""  # 目标群名称（与微信显示名一致）
-    start_emoji_md5: "52949bf9d43e8135aed3b0e6e7fe18bb"
-    end_emoji_md5: "023d7db8d4e25231d865af981328de76"
-    output_dir: game_records
-    db_path: game_records/game.db
-    min_bet: 50
-    reject_over_balance: true
-    open_gui: true
-    save_format: json
-    collect_non_text: false
-    skip_system: true
 rpa:
   # RPA相关参数
   action_delay: 0.3  # 操作延迟（秒）

@@ -15,8 +15,6 @@ from omni_bot_sdk.services.core.database_service import DatabaseService
 from omni_bot_sdk.weixin.parser.util.common import decompress
 
 
-# 微信红包消息类型（与 MessageType.RedEnvelope 一致）
-RED_ENVELOPE_MSG_TYPE = 8594229559345
 # 表情包（MessageType.Emoji）——本机不完整表情重试暂关闭，改用手机发送
 # EMOJI_MSG_TYPE = 47
 # INCOMPLETE_EMOJI_DELAY = 2
@@ -55,7 +53,6 @@ class MessageService:
         auto_consume: bool = True,
         delay_seconds: int = 30,
         callback_url: str = "",
-        red_envelope_delay: int = 60,
     ):
         self.logger = logging.getLogger(__name__)
         self.message_queue = message_queue
@@ -64,7 +61,6 @@ class MessageService:
         self.is_paused = False
         self.auto_consume = auto_consume
         self.DELAY_SECONDS = delay_seconds
-        self.RED_ENVELOPE_DELAY = red_envelope_delay
         self.callback_url = callback_url
         self.thread: Optional[threading.Thread] = None
         self.seen_message_types = set()
@@ -409,16 +405,12 @@ class MessageService:
                                 except Exception as e:
                                     self.logger.error(f"发送回调失败: {e}")
 
-                            # 红包消息放行；其余仍要求包含 @chat/@let
-                            try:
-                                is_red_envelope = int(msg_type) == RED_ENVELOPE_MSG_TYPE
-                            except (TypeError, ValueError):
-                                is_red_envelope = False
-                            # if not has_at_keyword and not is_red_envelope:
-                            #     self.logger.info(
-                            #         f"跳过不包含@chat或@let的消息: {table_name}"
-                            #     )
-                            #     continue
+                            # 只放行包含 @chat/@let 的消息
+                            if not has_at_keyword:
+                                self.logger.info(
+                                    f"跳过不包含@chat或@let的消息: {table_name}"
+                                )
+                                continue
 
                             # 检查是否启用自动消费（本地队列处理）
                             if not self.auto_consume:
@@ -434,12 +426,7 @@ class MessageService:
                                 )
                                 self._delayed_messages.pop(0)
 
-                            # 红包用独立延迟；本机表情包重试暂关闭
-                            msg_delay = (
-                                self.RED_ENVELOPE_DELAY
-                                if is_red_envelope
-                                else self.DELAY_SECONDS
-                            )
+                            msg_delay = self.DELAY_SECONDS
                             # incomplete_emoji = self._is_incomplete_emoji(msg_data)
                             # if incomplete_emoji:
                             #     msg_delay = INCOMPLETE_EMOJI_DELAY
@@ -457,7 +444,6 @@ class MessageService:
                                 f"新消息加入延迟队列，来自于{Path(msg_data[-1]).name} : {table_name}, "
                                 f"消息类型: {msg_type}, server_id: {server_id}, "
                                 f"延迟{msg_delay}秒处理"
-                                + (" [红包]" if is_red_envelope else "")
                             )
 
                     self.logger.info(f"延迟队列大小: {len(self._delayed_messages)}")
