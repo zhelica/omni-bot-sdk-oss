@@ -6,9 +6,9 @@ dbkey: 6da266d7f6c8445f879759cef7519f894f55ee067ff14b37af108a0dc6f18487 # 大号
 # 示例：aes_xor_key: 1234567890,17
 aes_xor_key:
 
-# 软件秘钥
+# 软件秘钥（服务器在线校验，填服务端下发的 key，非本地机器码激活码）
 license:
-  key: "eyJtaWQiOiJEODZDLUE4RUMtNkUwNi0yMTUwLTY4OEMtMzkwMS0xOTdDLUI0OTUiLCJleHAiOiIyMDI2LTEyLTA0Iiwic24iOiI0MjI2NDFhY2VmZmEiLCJpYXQiOiIyMDI2LTExLTA0IDE5OjA5OjQwIn0.dD2G5UrwSpw9EmMAHe_bDYqH3K2qwNCujJCkNmIFCzUyioXzWwScPGIK1-W_6u9Y5Vxk5OiOAgMZal46e4QaXE0gqwK8YzwcxzMDGV5Y1KBdNNnu5c8p1YedS9Nabj9slHSnxaogkO3pshviVAVc3MaJ24A5GwXHvi-7QUpLmj4iqlYy8mCn8S0qSvmDHFiSuKfZ1g6A89zUz_Jn0-F0eqFBa93Orzv69Yzd_adJhZilxDbTysI4YMt0Ih-Ei8tK5YPB1N1n3c1B4myISIiiUtCrseWUz9LxFPWmwjGM25ncUpO1AKvslcmsHOh6T5VdayfYFQJkH_Q3K76HhNdlIg"
+  key: "your-license-key"
 
 # RPA API 服务配置（可选）
 # 提供 HTTP REST API 接口，允许外部系统直接调用 RPA 任务
