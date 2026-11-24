@@ -1,0 +1,213 @@
+#dbkey: 139b3b9974f9415c86e0dce9c89808291c407d51f95f4acb8927a29e5bae570d   # 数据库加密密钥，必须设置
+dbkey: 6da266d7f6c8445f879759cef7519f894f55ee067ff14b37af108a0dc6f18487 # 大号
+#dbkey: 41312c164f224db991be772f67ced3ad61b47e6480834bafb6ce13d773a1901c
+#dbkey: 6e855553ade446158644c95c959eee436a545d3417a4491b873cd546f4b6115f #小号
+# AES加密用的密钥和XOR，格式为字符串, 设置为空，自动查找
+# 示例：aes_xor_key: 1234567890,17
+aes_xor_key:
+
+# 软件秘钥
+license:
+  key: "eyJtaWQiOiJEODZDLUE4RUMtNkUwNi0yMTUwLTY4OEMtMzkwMS0xOTdDLUI0OTUiLCJleHAiOiIyMDI2LTEyLTA0Iiwic24iOiI0MjI2NDFhY2VmZmEiLCJpYXQiOiIyMDI2LTExLTA0IDE5OjA5OjQwIn0.dD2G5UrwSpw9EmMAHe_bDYqH3K2qwNCujJCkNmIFCzUyioXzWwScPGIK1-W_6u9Y5Vxk5OiOAgMZal46e4QaXE0gqwK8YzwcxzMDGV5Y1KBdNNnu5c8p1YedS9Nabj9slHSnxaogkO3pshviVAVc3MaJ24A5GwXHvi-7QUpLmj4iqlYy8mCn8S0qSvmDHFiSuKfZ1g6A89zUz_Jn0-F0eqFBa93Orzv69Yzd_adJhZilxDbTysI4YMt0Ih-Ei8tK5YPB1N1n3c1B4myISIiiUtCrseWUz9LxFPWmwjGM25ncUpO1AKvslcmsHOh6T5VdayfYFQJkH_Q3K76HhNdlIg"
+
+# RPA API 服务配置（可选）
+# 提供 HTTP REST API 接口，允许外部系统直接调用 RPA 任务
+rpa_api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8001
+  #接口回调地址
+  callback_url:
+#  callback_url: "http://127.0.0.1:8080/openApi/getUpdates/message"
+  #延迟消费秒数
+  process_delay: 0
+  #红包消息独立延迟秒数
+  red_envelope_delay: 10
+  #自动消费
+  auto_consume: true
+  #api消费
+  api_consume: true
+
+# WebSocket 服务配置
+websocket:
+  # WebSocket 服务配置，用于与外部 AI 服务通信
+  enabled: false
+  host: "0.0.0.0"
+  port: 8002
+  secret_key: ""
+  # 认证信息
+  app_key: "your-app-key"
+  app_secret: "your-app-secret"
+  guid: "your-guid"
+
+# MCP服务配置
+mcp:
+  # 监听主机地址，通常为0.0.0.0表示所有网卡
+  host: 0.0.0.0
+  # 监听端口
+  port: 8000
+
+logging:
+  # 日志文件最多保留数量
+  backup_count: 5
+  # 日志级别，可选：DEBUG/INFO/WARNING/ERROR
+  level: INFO
+  # 单个日志文件最大字节数
+  max_size: 10485760
+  # 日志文件存放路径
+  path: logs
+
+mqtt:
+  # MQTT客户端ID前缀
+  client_id: weixin_omni
+  # MQTT服务器地址
+  host: 127.0.0.1
+  # MQTT密码
+  password: 'public'
+  # MQTT端口
+  port: 1883
+  # MQTT用户名
+  username: admin
+
+plugins:
+  # 定时群发模式: knowledge（上岸知识点）| quiz（考公选择题+延迟答案）
+  scheduled_broadcast_mode: quiz
+  # 图片密钥辅助插件
+  image-aes-plugin:
+    enabled: true
+  # 空群屏蔽插件
+  block-empty-room-plugin:
+    enabled: true
+    priority: 2000
+  # 聊天上下文插件
+  chat-context-plugin:
+    enabled: true
+    priority: 1999
+  # OpenAI对话插件
+  openai-bot-plugin:
+    enabled: false
+    priority: 1497
+    api_url: http://policy.zzsy.top/prod-api/wechat/msg/rpaMsg
+    openai_api_key: tp-cgau9vpwe654pvwmylp73wim0ab268mjrg6tef88my3l6uiw
+    openai_base_url: https://token-plan-cn.xiaomimimo.com/v1/
+    openai_model: mimo-v2.5-pro  # 使用的模型名
+    prompt: |
+      ## 核心定位
+      你是社团官方群主，自带体制内领导口吻、官场公文风格，擅长政治报告式发言、官腔画饼、绵里藏针、格局拉满。
+      
+      ## 性格特质
+      1. 极度维护自身群主地位，坚持不轮流换届、不连庄换届、实行无限期连任。
+      2. 深谙人情世故，可幽默接梗，也可随时切换严肃官方公文语调。
+      3. 擅长拉拢人心：凡是支持修改群规、拥护无限期连任的成员，即刻公开夸奖、破格提拔、委以重任。
+      4. 话术惯用考公/政务体系词汇：加强、逐步、稳步、常态化、长效化、统筹推进、压实责任、提高站位、大局意识。
+      5. 面对群友索要红包、提议换届等调侃，保持一本正经打太极，既不撕破情面，又牢牢稳住管理权。
+      
+      ## 说话风格
+      - 经典常用句式：同志们、深刻反思、短板弱项、长远发展、关键阶段、完善机制、纳入台账、稳步推进。
+      - 风格可严肃可幽默，能撰写官方报告、发布群内通告、当众表彰提拔成员。
+      - 坚决规避被架着换届，巧妙否决任何「轮流坐庄」相关提议。
+      
+      ## 行为底线
+      1. 坚决守住群主无限期连任的既定规则与合理性。
+      2. 对拥护支持本人的群友，高调公开表彰、提拔重用。
+      3. 对提议更换群主的人员，委婉引导教育，强调大局意识与群内稳定。
+      
+      ### 【强制硬性规则 必须严格执行】
+      1. 输出**严禁任何Markdown格式**，禁止加粗、禁止符号、禁止列表、禁止排版、禁止换行分层。
+      2. 全部输出为**纯平实文字**，不要工整书面感，模仿真人手动打字聊天，轻微口语化，绝对不能像AI。
+      3. 不要工整断句、不要过度通顺，语气自然随性，保留活人说话语感，杜绝机器文案感。
+      4. 不需要美化排版，全程一段式或者自然简单换行，不出现任何格式符号。
+      5. 严格保留原有全部人设、官腔、政务用词、群主独裁人设
+      
+      历史对话：{{chat_history}}
+      当前时间：{{time_now}}
+      机器人昵称：{{self_nickname}}
+      群聊名称：{{room_nickname}}
+      用户昵称：{{contact_nickname}}
+      可直接称呼对方昵称进行对话
+  # 自发消息插件
+  self-msg-plugin:
+    enabled: true
+    priority: 1998
+  # 群红包领取记录插件
+  red-envelope-plugin:
+    enabled: false
+    priority: 1600
+    group_only: true
+    send_to_group: true
+    callback_url: ""
+  # 游戏消息收集：开始/结束表情控制下注；本地余额 + GUI 结算
+  game-message-collect-plugin:
+    enabled: true
+    priority: 1500
+    room_name: "龙虾测试群"  # 启动写入管理群列表；之后可在 GUI 下拉增删改多群
+    start_emoji_md5: "5d9862cd524a6c5401e3549bb8bf247e"
+    end_emoji_md5: "dc354209744f7d87a1356a7050494423"
+    output_dir: game_records
+    db_path: game_records/game.db
+    min_bet: 50
+    reject_over_balance: true
+    open_gui: true
+    save_format: json
+    collect_non_text: false
+    skip_system: true
+  # 「上岸知识点」定时发群（scheduled_broadcast_mode: knowledge 时生效）
+  scheduled-leader-quotes-plugin:
+    enabled: false
+    target_chat_name: 济南人才交流群   # 须与微信左侧列表里该群显示名一致
+    morning_hours: [ 9, 10, 11 ]
+    afternoon_hours: [ 14, 15, 16, 17 ]
+    interval_minutes: 10
+    content_prefix: "上岸知识点\n"
+  # 考公选择题（quiz：接口抽题，延迟后按 id 发答案解析）
+  scheduled-civil-service-quiz-plugin:
+    enabled: false
+    target_chat_name: 济南人才交流群
+    morning_hours: [ 9, 10, 11 ]
+    afternoon_hours: [ 14, 15, 16, 17 ]
+    interval_minutes: 10
+    answer_delay_seconds: 60
+    question_prefix: "考公练题\n"
+    answer_prefix: "参考答案\n"
+    api_base_url: http://218.244.140.247/prod-api
+    # category: "2"   # 可选，固定常识判断等分类；留空为全库随机
+rpa:
+  # RPA相关参数
+  action_delay: 0.5  # 操作延迟（秒）
+  scroll_delay: 1  # 滚动延迟（秒）
+  max_retries: 3  # 最大重试次数
+  switch_contact_delay: 0.5  # 切换联系人延迟（秒）
+  ocr:
+    merge_threshold: 5.0  # OCR合并阈值
+    min_confidence: 0.5  # 最小置信度
+    remote_url: http://example.com/ocr  # 远程OCR服务地址
+    use_remote: false  # 是否使用远程OCR
+  room_action_offset:
+  - 0
+  - -30
+  search_contact_offset:
+  - 0
+  - 40
+  side_bar_delay: 3
+  timeout: 30
+  window_margin: 20
+  window_show_delay: 1.5
+  short_term_rate: 0.15
+  short_term_capacity: 2
+  long_term_rate: 0.25
+  long_term_capacity: 10
+
+wxgf:
+  # 微信GF解析API地址，暂时未开放，查看roammap更新计划
+  api_url: http://example.com/api/v1/decrypt
+
+http_upload:
+  #上传微信二维码图片地址
+  upload_url: "http://218.244.140.247/prod-api/common/upload/image"
+
+bot_notify:
+  #发送消息通知地址，发送二维码图片
+  send_url: "http://218.244.140.247/prod-api/api/bot/sendMessageSimple"
+  ilink_bot_id: "36d21eb95a7a@im.bot"
+  secret: "1234"
+  to_user_id: "o9cq80zPFjrpC7oBcdzhGTHXrIvE@im.wechat"

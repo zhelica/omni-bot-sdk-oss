@@ -131,11 +131,9 @@ cython_debug/
 .vscode/ 
 src/omni_bot_sdk/yolo/models/msg_rec2.pt
 examples/simple-bot/aes_xor_key.dat
-examples/simple-bot/config.yaml
 aes_xor_key.dat
 runtime_images
 test_image.png
-config.yaml
 
 # 本地发卡私钥（严禁泄露 / 勿打包给客户）
 tools/license_tool/private_key.pem
